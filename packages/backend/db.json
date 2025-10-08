@@ -1,0 +1,16 @@
+{
+  "managers": [
+    { "id": "m1", "name": "Kierownik A" },
+    { "id": "m2", "name": "Kierownik B" }
+  ],
+  "employees": [
+    { "id": "e1", "name": "Jan Kowalski", "role": "Technik", "employmentType": "Pełen etat", "managerId": "m1" },
+    { "id": "e2", "name": "Anna Nowak", "role": "Technik", "employmentType": "Pełen etat", "managerId": "m1" },
+    { "id": "e3", "name": "Piotr Wiśniewski", "role": "Admin", "employmentType": "Pełen etat", "managerId": "m1" },
+    { "id": "e4", "name": "Dorota Zielińska", "role": "Technik", "employmentType": "Pełen etat", "managerId": "m2" },
+    { "id": "e5", "name": "Ewa Maj", "role": "Technik", "employmentType": "Pełen etat", "managerId": "m2" },
+    { "id": "e6", "name": "Filip Nowicki", "role": "Technik", "employmentType": "1/2 etatu", "managerId": "m2" }
+  ],
+  "plans": [],
+  "monthlyLogs": []
+}
