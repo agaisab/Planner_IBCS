@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.js",
+  "scripts": {
+    "build": "echo \"@planner/shared: nothing to build\""
+  },
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./assets/logo.png": "./src/assets/ibcs-logo.png"
   }
 }

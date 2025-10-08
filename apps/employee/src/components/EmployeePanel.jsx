@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import {
@@ -9,6 +9,7 @@ import {
   Pencil,
   Save,
   CalendarPlus,
+  Settings,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -38,11 +39,13 @@ import {
   fetchMonthlyLogs,
   savePlan
 } from '@planner/shared';
+import Logo from '../assets/ibcs-logo.png';
 
 const BTN =
   'inline-flex items-center gap-2 rounded-xl border-2 border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed';
 const CARD = 'rounded-2xl border-2 border-slate-300 bg-white shadow-sm p-4';
 const CHIP = 'inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-sm';
+const WEEK_DAYS = ['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'];
 
 const sanitizePlan = (plan) => {
   if (!plan) return plan;
@@ -64,7 +67,7 @@ function TimeSelect({ value, onChange, placeholder, disabled }) {
       value={v}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
-      className="mt-1 w-full min-w-[120px] rounded-xl border-2 border-slate-300 px-3 pr-8 py-2 tabular-nums font-mono disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+      className="mt-1 w-full max-w-[7rem] rounded-xl border-2 border-slate-300 px-3 py-2 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
     >
       <option value="">{placeholder || '—'}</option>
       {opts.map((o) => (
@@ -178,13 +181,54 @@ function ChipSelect({ value, options, onChange, portal = true, direction = 'auto
 }
 
 function ModeChooser({ value, onChange }) {
-  const options = Object.keys(MODE_META).map((key) => ({
-    value: key,
-    label: MODE_META[key].label,
-    className: `${MODE_META[key].base} ${MODE_META[key].border} ${MODE_META[key].text}`,
-    dot: MODE_META[key].dot
-  }));
-  return <ChipSelect value={value || 'OFFICE'} onChange={onChange} options={options} direction="below" />;
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const meta = MODE_META[value] || MODE_META.OFFICE;
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (ref.current && !ref.current.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="mt-1 relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className={`${CHIP} ${meta.base} ${meta.border} ${meta.text}`}
+      >
+        <span className={`inline-block h-2 w-2 rounded-full ${meta.dot}`} /> {meta.label}
+        <ChevronDown className="w-3 h-3" />
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-2 w-64 rounded-xl border-2 border-slate-300 bg-white shadow-lg p-1 text-xs">
+          {Object.keys(MODE_META).map((key) => {
+            const current = MODE_META[key];
+            const active = key === value;
+            return (
+              <button
+                key={key}
+                onClick={() => {
+                  onChange(key);
+                  setOpen(false);
+                }}
+                className={`w-full text-left px-2.5 py-1.5 rounded-lg border ${
+                  active
+                    ? `${current.base} ${current.border} ${current.text}`
+                    : 'border-transparent hover:bg-slate-50 text-slate-700'
+                }`}
+              >
+                <span className={`inline-block h-2 w-2 rounded-full ${current.dot}`} /> {current.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TaskTypeChooser({ value, onChange, disabled }) {
@@ -214,6 +258,124 @@ function StatusChooser({ value, onChange, disabled }) {
     />
   );
 }
+
+const TaskRow = memo(function TaskRow({
+  task,
+  menuRect,
+  activeTaskId,
+  registerAnchor,
+  onToggleMenu,
+  onFieldChange,
+  onLock,
+  onUnlock,
+  onExport,
+  onDelete,
+  computeWorkKind
+}) {
+  const menuOpen = activeTaskId === task.id;
+  const workKind = computeWorkKind(task);
+  const actionRef = useCallback(
+    (node) => registerAnchor(task.id, node),
+    [registerAnchor, task.id]
+  );
+
+  return (
+    <tr className="border-t border-slate-200">
+      <td className="p-2">
+        <TaskTypeChooser value={task.type} onChange={(value) => onFieldChange(task.id, { type: value })} disabled={task.locked} />
+      </td>
+      <td className="p-2">
+        <input
+          value={task.subject}
+          onChange={(e) => onFieldChange(task.id, { subject: e.target.value })}
+          className="w-full rounded-lg border-2 border-slate-300 px-2 py-1"
+          placeholder="np. Raport"
+          disabled={task.locked}
+        />
+      </td>
+      <td className="p-2">
+        <input
+          value={task.client}
+          onChange={(e) => onFieldChange(task.id, { client: e.target.value })}
+          className="w-full rounded-lg border-2 border-slate-300 px-2 py-1"
+          placeholder="np. Klient"
+          disabled={task.locked}
+        />
+      </td>
+      <td className="p-2">
+        <input
+          value={task.project}
+          onChange={(e) => onFieldChange(task.id, { project: e.target.value })}
+          className="w-full rounded-lg border-2 border-slate-300 px-2 py-1"
+          placeholder="np. CR-10001 / zasób"
+          disabled={task.locked}
+        />
+      </td>
+      <td className="p-2">
+        <TimeSelect value={task.start} onChange={(value) => onFieldChange(task.id, { start: value })} disabled={task.locked} />
+      </td>
+      <td className="p-2">
+        <TimeSelect value={task.end} onChange={(value) => onFieldChange(task.id, { end: value })} disabled={task.locked} />
+      </td>
+      <td className="p-2">
+        <span className={`${CHIP} ${WORKKIND_STYLES[workKind]}`}>{workKind}</span>
+      </td>
+      <td className="p-2">
+        <StatusChooser value={task.status || 'Planowane'} onChange={(value) => onFieldChange(task.id, { status: value })} disabled={task.locked} />
+      </td>
+      <td className="relative p-2 text-right">
+        <button
+          ref={actionRef}
+          onClick={() => onToggleMenu(task.id)}
+          className="rounded-lg border-2 border-slate-300 p-2 hover:bg-slate-50"
+          title="Akcje"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
+        {menuOpen && menuRect &&
+          createPortal(
+            <div
+              data-task-actions-menu
+              className="z-50 w-52 rounded-2xl border border-slate-200 bg-white shadow-2xl p-1 text-sm"
+              style={{ position: 'fixed', top: menuRect.top - 12, left: menuRect.right, transform: 'translate(-100%, -100%)' }}
+            >
+              <button
+                data-task-actions-menu
+                onClick={() => onLock(task.id)}
+                disabled={!!task.locked}
+                className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+              >
+                <Save className="w-4 h-4" /> Zapisz
+              </button>
+              <button
+                data-task-actions-menu
+                onClick={() => onUnlock(task.id)}
+                disabled={!task.locked}
+                className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+              >
+                <Pencil className="w-4 h-4" /> Edytuj
+              </button>
+              <button
+                data-task-actions-menu
+                onClick={() => onExport(task)}
+                className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-slate-50"
+              >
+                <CalendarPlus className="w-4 h-4" /> Do Outlooka
+              </button>
+              <button
+                data-task-actions-menu
+                onClick={() => onDelete(task.id)}
+                className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-rose-700 hover:bg-rose-50"
+              >
+                <Trash2 className="w-4 h-4" /> Usuń
+              </button>
+            </div>,
+            document.body
+          )}
+      </td>
+    </tr>
+  );
+});
 
 function PickerSection({ title, icon: Icon, count, items, selectedId, onSelect }) {
   const [open, setOpen] = useState(false);
@@ -258,9 +420,9 @@ function PickerSection({ title, icon: Icon, count, items, selectedId, onSelect }
                   onSelect(item);
                   setOpen(false);
                 }}
-                className="w-full text-left"
+                className="w-full text-left text-base"
               >
-                <div className="font-medium truncate">{item.name}</div>
+                <div className="font-medium">{item.name}</div>
                 {item.subtitle && (
                   <div className={cls('text-xs', active ? 'text-slate-200' : 'text-slate-500')}>{item.subtitle}</div>
                 )}
@@ -274,25 +436,27 @@ function PickerSection({ title, icon: Icon, count, items, selectedId, onSelect }
 }
 
 function EmployeeCalendar({ monthStart, selectedDate, setSelectedDate, statusByDate, modeByDate }) {
-  const y = monthStart.getFullYear();
-  const m = monthStart.getMonth();
-  const first = new Date(y, m, 1);
-  const start = (first.getDay() + 6) % 7;
-  const dim = new Date(y, m + 1, 0).getDate();
-  const dimPrev = new Date(y, m, 0).getDate();
+  const { cells, todayKey } = useMemo(() => {
+    const y = monthStart.getFullYear();
+    const m = monthStart.getMonth();
+    const first = new Date(y, m, 1);
+    const start = (first.getDay() + 6) % 7;
+    const dim = new Date(y, m + 1, 0).getDate();
+    const dimPrev = new Date(y, m, 0).getDate();
 
-  const cells = [];
-  for (let i = start; i > 0; i--) cells.push({ d: new Date(y, m - 1, dimPrev - i + 1), outside: true });
-  for (let i = 1; i <= dim; i++) cells.push({ d: new Date(y, m, i), outside: false });
-  let next = 1;
-  while (cells.length % 7) cells.push({ d: new Date(y, m + 1, next++), outside: true });
+    const generated = [];
+    for (let i = start; i > 0; i--) generated.push({ d: new Date(y, m - 1, dimPrev - i + 1), outside: true });
+    for (let i = 1; i <= dim; i++) generated.push({ d: new Date(y, m, i), outside: false });
+    let next = 1;
+    while (generated.length % 7) generated.push({ d: new Date(y, m + 1, next++), outside: true });
 
-  const todayKey = ymd(new Date());
+    return { cells: generated, todayKey: ymd(new Date()) };
+  }, [monthStart]);
 
   return (
     <div className="select-none">
       <div className="grid grid-cols-7 text-xs text-slate-500 mb-1">
-        {['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'].map((day) => (
+        {WEEK_DAYS.map((day) => (
           <div key={day} className="px-1 py-1 text-center">
             {day}
           </div>
@@ -306,7 +470,7 @@ function EmployeeCalendar({ monthStart, selectedDate, setSelectedDate, statusByD
           const raw = statusByDate[key] || 'NONE';
           const status = raw === 'SENT' ? 'PLANNED' : raw;
           const mode = modeByDate[key];
-          const planned = 'bg-sky-100 border-sky-300 text-slate-900';
+          const planned = 'bg-sky-50 border-sky-300 text-slate-900';
           const settled = 'bg-emerald-100 border-emerald-500 text-emerald-900';
           const absence = 'bg-red-100 border-red-500 text-red-900';
           const weekendCls = 'bg-slate-200 border-slate-300 text-slate-700';
@@ -371,6 +535,10 @@ export default function EmployeePanel() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [monthCursor, setMonthCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [calendarOpen, setCalendarOpen] = useState(true);
+  const [taskActionsMenu, setTaskActionsMenu] = useState({ id: null, rect: null });
+  const taskActionRefs = useRef({});
+  const [splitPrompt, setSplitPrompt] = useState(null);
+  const [splitProcessing, setSplitProcessing] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -472,6 +640,39 @@ export default function EmployeePanel() {
       active = false;
     };
   }, [selectedEmployee?.id, dKey]);
+
+  useEffect(() => {
+    if (!taskActionsMenu.id) return;
+
+    const updatePosition = () => {
+      const anchor = taskActionRefs.current[taskActionsMenu.id];
+      if (!anchor) {
+        setTaskActionsMenu({ id: null, rect: null });
+        return;
+      }
+      const rect = anchor.getBoundingClientRect();
+      setTaskActionsMenu((prev) => (prev.id ? { id: prev.id, rect } : prev));
+    };
+
+    const handleClick = (event) => {
+      if (event.target.closest('[data-task-actions-menu]')) return;
+      const anchor = taskActionRefs.current[taskActionsMenu.id];
+      if (anchor && anchor.contains(event.target)) return;
+      setTaskActionsMenu({ id: null, rect: null });
+    };
+
+    const handleScroll = () => setTaskActionsMenu({ id: null, rect: null });
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('mousedown', handleClick);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('mousedown', handleClick);
+    };
+  }, [taskActionsMenu.id]);
 
   const sentDay = selectedEmployee ? plansByDate[dKey] || null : null;
 
@@ -580,38 +781,69 @@ export default function EmployeePanel() {
     ? submitted.dayStatus || computeDayStatus(submitted.items, planned)
     : 'W trakcie';
 
-  const addTask = () =>
-    setSubDraft((prev) => ({
-      ...prev,
-      items: [
-        ...(prev.items || []),
-        {
-          id: `t${Date.now()}`,
-          type: 'Biuro',
-          subject: '',
-          client: '',
-          project: '',
-          start: '',
-          end: '',
-          workKind: 'Zwykłe',
-          status: 'Planowane'
-        }
-      ]
-    }));
+  const taskItems = subDraft.items || [];
+  useEffect(() => {
+    if (!taskItems.length) {
+      setTaskActionsMenu({ id: null, rect: null });
+      setSplitPrompt(null);
+    }
+  }, [taskItems.length]);
 
-  const delTask = (id) =>
-    setSubDraft((prev) => ({
-      ...prev,
-      items: (prev.items || []).filter((item) => item.id !== id)
-    }));
+  const addTask = useCallback(
+    () =>
+      setSubDraft((prev) => {
+        const items = prev.items || [];
+        const lastTaskWithEnd = [...items].reverse().find((task) => task.end);
+        const defaultStart = lastTaskWithEnd?.end || shifts[0]?.start || '';
+        const defaultEnd = (() => {
+          if (shifts.length === 0) return '';
+          const fallback = shifts[shifts.length - 1]?.end || '';
+          if (!defaultStart) return fallback;
+          const startMinutes = toMinutes(defaultStart);
+          const candidate = shifts.find((shift) => toMinutes(shift.end) > startMinutes)?.end;
+          return candidate || fallback;
+        })();
 
-  const setTask = (id, patch) =>
-    setSubDraft((prev) => ({
-      ...prev,
-      items: (prev.items || []).map((item) => (item.id === id ? { ...item, ...patch } : item))
-    }));
+        return {
+          ...prev,
+          items: [
+            ...items,
+            {
+              id: `t${Date.now()}`,
+              type: 'Biuro',
+              subject: '',
+              client: '',
+              project: '',
+              start: defaultStart,
+              end: defaultEnd,
+              workKind: 'Zwykłe',
+              status: 'Planowane'
+            }
+          ]
+        };
+      }),
+    [shifts]
+  );
 
-  const exportTaskICS = (task) => {
+  const delTask = useCallback(
+    (id) =>
+      setSubDraft((prev) => ({
+        ...prev,
+        items: (prev.items || []).filter((item) => item.id !== id)
+      })),
+    []
+  );
+
+  const setTask = useCallback(
+    (id, patch) =>
+      setSubDraft((prev) => ({
+        ...prev,
+        items: (prev.items || []).map((item) => (item.id === id ? { ...item, ...patch } : item))
+      })),
+    []
+  );
+
+  const exportTaskICS = useCallback((task) => {
     const toISOLocal = (date, hhmm) => {
       const [h, m] = String(hhmm || '00:00').split(':').map(Number);
       const dt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), h || 0, m || 0, 0, 0);
@@ -634,30 +866,75 @@ Status: ${task.status || '-'}`;
       body: desc
     });
 
-    const urls = [
-      `https://outlook.office.com/calendar/0/deeplink/compose?${params.toString()}`,
-      `https://outlook.live.com/calendar/0/deeplink/compose?${params.toString()}`
-    ];
+    const url = `https://outlook.office.com/calendar/0/deeplink/compose?${params.toString()}`;
 
-    urls.forEach((url) => {
-      try {
-        const link = document.createElement('a');
-        link.href = url;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      } catch {
-        /* no-op */
-      }
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch {
+      /* no-op */
+    }
+  }, [selectedDate]);
+
+  const registerTaskActionAnchor = useCallback((id, node) => {
+    if (node) taskActionRefs.current[id] = node;
+    else delete taskActionRefs.current[id];
+  }, []);
+
+  const closeTaskActions = useCallback(() => setTaskActionsMenu({ id: null, rect: null }), []);
+
+  const toggleTaskActions = useCallback((id) => {
+    setTaskActionsMenu((prev) => {
+      if (prev.id === id) return { id: null, rect: null };
+      const anchor = taskActionRefs.current[id];
+      if (!anchor) return prev;
+      return { id, rect: anchor.getBoundingClientRect() };
     });
-  };
+  }, []);
+
+  const handleTaskFieldChange = useCallback((id, patch) => setTask(id, patch), [setTask]);
+
+  const handleTaskLock = useCallback(
+    (id) => {
+      setTask(id, { locked: true });
+      closeTaskActions();
+    },
+    [setTask, closeTaskActions]
+  );
+
+  const handleTaskUnlock = useCallback(
+    (id) => {
+      setTask(id, { locked: false });
+      closeTaskActions();
+    },
+    [setTask, closeTaskActions]
+  );
+
+  const handleTaskExport = useCallback(
+    (task) => {
+      exportTaskICS(task);
+      closeTaskActions();
+    },
+    [exportTaskICS, closeTaskActions]
+  );
+
+  const handleTaskDelete = useCallback(
+    (id) => {
+      delTask(id);
+      closeTaskActions();
+    },
+    [delTask, closeTaskActions]
+  );
 
   const sendTasksToManager = async () => {
     if (!selectedEmployee) return;
     const now = new Date().toISOString();
-    const items = (subDraft.items || []).map((item) => ({
+    const items = taskItems.map((item) => ({
       ...item,
       workKind: wkOf(item)
     }));
@@ -746,10 +1023,10 @@ Status: ${task.status || '-'}`;
     return combined.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
   }, [monthlyLogsSel, sentDay?.logs]);
 
-  const selectedPlanReported = (subDraft.items || []).reduce(
-    (acc, item) => acc + (toMinutes(item.end) - toMinutes(item.start)),
-    0
-  );
+  const selectedPlanReported = taskItems.reduce((acc, item) => {
+    if (!item.start || !item.end) return acc;
+    return acc + (toMinutes(item.end) - toMinutes(item.start));
+  }, 0);
 
   if (error) {
     return (
@@ -763,12 +1040,15 @@ Status: ${task.status || '-'}`;
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto max-w-7xl p-6 space-y-6 text-slate-800">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Panel pracownika</h1>
-          <p className="text-slate-500 flex items-center gap-2">
-            <Users className="w-4 h-4" /> Zarządzaj swoim planem i zadaniami
-          </p>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <img src={Logo} alt="IBCS Planner logo" className="w-14 h-14 object-cover" />
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Panel pracownika</h1>
+            <p className="text-slate-500 flex items-center gap-2">
+              <Users className="w-4 h-4" /> Zarządzaj swoim planem i zadaniami
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setCalendarOpen((o) => !o)} className={BTN} aria-label="Pokaż/ukryj kalendarz">
@@ -911,7 +1191,7 @@ Status: ${task.status || '-'}`;
                 <Plus className="w-4 h-4" />
               </button>
               <button onClick={sendPlanToManager} className={BTN}>
-                <Send className="w-4 h-4 text-emerald-600" /> Wyślij plan
+                <Send className="w-4 h-4 text-emerald-600" /> Wyślij
               </button>
             </div>
           </div>
@@ -997,14 +1277,7 @@ Status: ${task.status || '-'}`;
           <div className="font-medium">Zadania (wysyłane do kierownika)</div>
         </div>
         <div className="flex items-center gap-2 text-sm mb-2">
-          <span className={`${CHIP} ${DAY_STATUS_STYLES[displayDayStatus]}`}>
-            <span
-              className={`inline-block h-2 w-2 rounded-full ${
-                displayDayStatus === 'Rozliczone' ? 'bg-emerald-500' : 'bg-amber-500'
-              }`}
-            />
-            {displayDayStatus}
-          </span>
+          <span className={`${CHIP} ${DAY_STATUS_STYLES[displayDayStatus]}`}>{displayDayStatus}</span>
           <span className="text-slate-400">|</span>
           <span className="text-slate-600">
             Plan: {spanStart && spanEnd ? `${spanStart}–${spanEnd}` : '—'} ({minutesToHHmm(planned)} h)
@@ -1012,10 +1285,10 @@ Status: ${task.status || '-'}`;
           <span className="text-slate-400">/</span>
           <span className="text-slate-600">Zgłoszono: {minutesToHHmm(selectedPlanReported)} h</span>
         </div>
-        {(!subDraft.items || subDraft.items.length === 0) && (
+        {taskItems.length === 0 && (
           <p className="text-sm text-slate-500">Brak zadań. Dodaj pierwsze.</p>
         )}
-        {(subDraft.items || []).length > 0 && (
+        {taskItems.length > 0 && (
           <div className="overflow-x-auto overflow-y-visible rounded-xl border-2 border-slate-300">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 text-slate-600">
@@ -1032,93 +1305,21 @@ Status: ${task.status || '-'}`;
                 </tr>
               </thead>
               <tbody>
-                {subDraft.items.map((item) => (
-                  <tr key={item.id} className="border-t border-slate-200">
-                    <td className="p-2">
-                      <TaskTypeChooser value={item.type} onChange={(value) => setTask(item.id, { type: value })} disabled={item.locked} />
-                    </td>
-                    <td className="p-2">
-                      <input
-                        value={item.subject}
-                        onChange={(e) => setTask(item.id, { subject: e.target.value })}
-                        className="w-full rounded-lg border-2 border-slate-300 px-2 py-1"
-                        placeholder="np. Raport"
-                        disabled={item.locked}
-                      />
-                    </td>
-                    <td className="p-2">
-                      <input
-                        value={item.client}
-                        onChange={(e) => setTask(item.id, { client: e.target.value })}
-                        className="w-full rounded-lg border-2 border-slate-300 px-2 py-1"
-                        placeholder="np. Klient"
-                        disabled={item.locked}
-                      />
-                    </td>
-                    <td className="p-2">
-                      <input
-                        value={item.project}
-                        onChange={(e) => setTask(item.id, { project: e.target.value })}
-                        className="w-full rounded-lg border-2 border-slate-300 px-2 py-1"
-                        placeholder="np. CR-10001 / zasób"
-                        disabled={item.locked}
-                      />
-                    </td>
-                    <td className="p-2">
-                      <TimeSelect
-                        value={item.start}
-                        onChange={(value) => setTask(item.id, { start: value })}
-                        disabled={item.locked}
-                      />
-                    </td>
-                    <td className="p-2">
-                      <TimeSelect value={item.end} onChange={(value) => setTask(item.id, { end: value })} disabled={item.locked} />
-                    </td>
-                    <td className="p-2">
-                      <span className={`${CHIP} ${WORKKIND_STYLES[wkOf(item)]}`}>{wkOf(item)}</span>
-                    </td>
-                    <td className="p-2">
-                      <StatusChooser
-                        value={item.status || 'Planowane'}
-                        onChange={(value) => setTask(item.id, { status: value })}
-                        disabled={item.locked}
-                      />
-                    </td>
-                    <td className="p-2 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => setTask(item.id, { locked: true })}
-                          disabled={!!item.locked}
-                          className="rounded-lg border-2 border-slate-300 p-2 hover:bg-slate-50 disabled:opacity-50"
-                          title="Zapisz"
-                        >
-                          <Save className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setTask(item.id, { locked: false })}
-                          disabled={!item.locked}
-                          className="rounded-lg border-2 border-slate-300 p-2 hover:bg-slate-50 disabled:opacity-50"
-                          title="Edytuj"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => exportTaskICS(item)}
-                          className="rounded-lg border-2 border-slate-300 p-2 hover:bg-slate-50"
-                          title="Eksport do Outlook (.ics)"
-                        >
-                          <CalendarPlus className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => delTask(item.id)}
-                          className="rounded-lg border-2 border-slate-300 p-2 hover:bg-slate-50"
-                          title="Usuń"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                {taskItems.map((item) => (
+                  <TaskRow
+                    key={item.id}
+                    task={item}
+                    menuRect={taskActionsMenu.rect}
+                    activeTaskId={taskActionsMenu.id}
+                    registerAnchor={registerTaskActionAnchor}
+                    onToggleMenu={toggleTaskActions}
+                    onFieldChange={handleTaskFieldChange}
+                    onLock={handleTaskLock}
+                    onUnlock={handleTaskUnlock}
+                    onExport={handleTaskExport}
+                    onDelete={handleTaskDelete}
+                    computeWorkKind={wkOf}
+                  />
                 ))}
               </tbody>
             </table>
