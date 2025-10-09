@@ -535,7 +535,17 @@ export default function EmployeePanel() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [monthCursor, setMonthCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [calendarOpen, setCalendarOpen] = useState(true);
-  const [planCollapsed, setPlanCollapsed] = useState(false);
+  const [planCollapsed, setPlanCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const stored = window.localStorage.getItem('employee-plan-collapsed');
+      if (stored === 'true') return true;
+      if (stored === 'false') return false;
+    } catch {
+      /* ignore */
+    }
+    return true;
+  });
   const [taskActionsMenu, setTaskActionsMenu] = useState({ id: null, rect: null });
   const taskActionRefs = useRef({});
   const [splitPrompt, setSplitPrompt] = useState(null);
@@ -695,7 +705,9 @@ export default function EmployeePanel() {
     setDraftDay(createDraft(sentDay));
   }, [selectedEmployee?.id, dKey, sentDay]);
   useEffect(() => {
-    setPlanCollapsed(false);
+    const stored = typeof window !== 'undefined' ? window.localStorage.getItem('employee-plan-collapsed') : null;
+    if (stored === 'true') setPlanCollapsed(true);
+    else if (stored === 'false') setPlanCollapsed(false);
   }, [selectedEmployee?.id, dKey]);
 
   const shifts = draftDay.shifts || [];
@@ -1465,7 +1477,19 @@ Status: ${task.status || '-'}`;
 
           <div className="mt-4 flex justify-center">
             <button
-              onClick={() => setPlanCollapsed((prev) => !prev)}
+              onClick={() =>
+                setPlanCollapsed((prev) => {
+                  const next = !prev;
+                  try {
+                    if (typeof window !== 'undefined') {
+                      window.localStorage.setItem('employee-plan-collapsed', String(next));
+                    }
+                  } catch {
+                    /* ignore */
+                  }
+                  return next;
+                })
+              }
               className="rounded-full border-2 border-slate-300 p-1.5 hover:bg-slate-50 transition-colors"
               aria-label={planCollapsed ? 'Rozwiń plan' : 'Zwiń plan'}
             >

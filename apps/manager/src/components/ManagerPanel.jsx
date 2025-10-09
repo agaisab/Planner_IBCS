@@ -385,7 +385,17 @@ export default function ManagerPanel() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [monthCursor, setMonthCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [calendarOpen, setCalendarOpen] = useState(true);
-  const [managerPlanCollapsed, setManagerPlanCollapsed] = useState(false);
+  const [managerPlanCollapsed, setManagerPlanCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const stored = window.localStorage.getItem('manager-plan-collapsed');
+      if (stored === 'true') return true;
+      if (stored === 'false') return false;
+    } catch {
+      /* ignore */
+    }
+    return true;
+  });
 
   const [empModalOpen, setEmpModalOpen] = useState(false);
   const [empMode, setEmpMode] = useState('create');
@@ -534,7 +544,9 @@ export default function ManagerPanel() {
     setDraftDay(createDraft(sentDay));
   }, [selectedEmployee?.id, dKey, sentDay]);
   useEffect(() => {
-    setManagerPlanCollapsed(false);
+    const stored = typeof window !== 'undefined' ? window.localStorage.getItem('manager-plan-collapsed') : null;
+    if (stored === 'true') setManagerPlanCollapsed(true);
+    else if (stored === 'false') setManagerPlanCollapsed(false);
   }, [selectedEmployee?.id, dKey]);
 
   const shifts = draftDay.shifts || [];
@@ -1276,7 +1288,19 @@ export default function ManagerPanel() {
 
         <div className="mt-4 flex justify-center">
           <button
-            onClick={() => setManagerPlanCollapsed((prev) => !prev)}
+            onClick={() =>
+              setManagerPlanCollapsed((prev) => {
+                const next = !prev;
+                try {
+                  if (typeof window !== 'undefined') {
+                    window.localStorage.setItem('manager-plan-collapsed', String(next));
+                  }
+                } catch {
+                  /* ignore */
+                }
+                return next;
+              })
+            }
             className="rounded-full border-2 border-slate-300 p-1.5 hover:bg-slate-50 transition-colors"
             aria-label={managerPlanCollapsed ? 'Rozwiń plan' : 'Zwiń plan'}
           >
