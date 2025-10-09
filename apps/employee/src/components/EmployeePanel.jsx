@@ -825,6 +825,33 @@ export default function EmployeePanel() {
     [shifts]
   );
 
+  const importPlanToTasks = useCallback(() => {
+    const segments = (shifts || []).filter((segment) => segment.start && segment.end);
+    if (!segments.length) return;
+    const nowBase = Date.now();
+    const generated = segments.map((segment, idx) => {
+      const modeKey = segment.mode || 'OFFICE';
+      const typeLabel = MODE_META[modeKey]?.label || 'Plan';
+      return {
+        id: `plan-${nowBase}-${idx}`,
+        type: typeLabel,
+        subject: segment.note || '',
+        client: '',
+        project: '',
+        start: segment.start,
+        end: segment.end,
+        workKind: 'Zwykłe',
+        status: 'Planowane',
+        locked: false
+      };
+    });
+    setSubDraft((prev) => ({
+      status: prev.status || 'SUBMITTED',
+      dayStatus: prev.dayStatus || 'W trakcie',
+      items: generated
+    }));
+  }, [shifts]);
+
   const delTask = useCallback(
     (id) =>
       setSubDraft((prev) => ({
@@ -897,7 +924,82 @@ Status: ${task.status || '-'}`;
     });
   }, []);
 
-  const handleTaskFieldChange = useCallback((id, patch) => setTask(id, patch), [setTask]);
+  const handleTaskFieldChange = useCallback(
+    (id, patch) => {
+      if (!('end' in patch)) {
+        setTask(id, patch);
+        return;
+      }
+
+      const planEnd = shifts
+        .map((shift) => shift.end)
+        .filter(Boolean)
+        .sort()
+        .slice(-1)[0];
+
+      const currentItems = subDraft.items || [];
+      const targetTask = currentItems.find((item) => item.id === id);
+
+      if (!planEnd || !targetTask) {
+        setTask(id, patch);
+        return;
+      }
+
+      const planEndMinutes = toMinutes(planEnd);
+      const newEndMinutes = toMinutes(patch.end);
+
+      if (!Number.isFinite(planEndMinutes) || !Number.isFinite(newEndMinutes) || newEndMinutes >= planEndMinutes) {
+        setTask(id, patch);
+        return;
+      }
+
+      const nextStartMinutes = currentItems
+        .filter((item) => item.id !== id && item.start)
+        .map((item) => toMinutes(item.start))
+        .filter((value) => Number.isFinite(value) && value > newEndMinutes);
+
+      const earliestNext = nextStartMinutes.length ? Math.min(...nextStartMinutes) : Infinity;
+      const gapEndMinutes = Math.min(planEndMinutes, earliestNext);
+
+      let shouldAddFollowup = false;
+      if (gapEndMinutes > newEndMinutes && typeof window !== 'undefined') {
+        const gapEnd = minutesToHHmm(gapEndMinutes);
+        const message = `Pozostał wolny czas od ${patch.end} do ${gapEnd}. Czy dodać nowe zadanie?`;
+        shouldAddFollowup = window.confirm(message);
+      }
+
+      setSubDraft((prev) => {
+        const items = prev.items || [];
+        const index = items.findIndex((item) => item.id === id);
+        if (index === -1) return prev;
+
+        const updatedItems = items.map((item) => (item.id === id ? { ...item, ...patch } : item));
+
+        if (shouldAddFollowup) {
+          const gapEnd = minutesToHHmm(gapEndMinutes);
+          if (patch.end && gapEnd && patch.end !== gapEnd) {
+            const baseTask = updatedItems[index];
+            const followup = {
+              id: `t${Date.now()}`,
+              type: baseTask.type || 'Biuro',
+              subject: '',
+              client: '',
+              project: '',
+              start: patch.end,
+              end: gapEnd,
+              workKind: 'Zwykłe',
+              status: 'Planowane',
+              locked: false
+            };
+            updatedItems.splice(index + 1, 0, followup);
+          }
+        }
+
+        return { ...prev, items: updatedItems };
+      });
+    },
+    [setTask, shifts, subDraft.items, setSubDraft]
+  );
 
   const handleTaskLock = useCallback(
     (id) => {
@@ -1325,13 +1427,20 @@ Status: ${task.status || '-'}`;
             </table>
           </div>
         )}
-        <div className="mt-3 flex items-center justify-end gap-2">
-          <button onClick={addTask} className={BTN}>
-            <Plus className="w-4 h-4" /> Dodaj zadanie
-          </button>
-          <button onClick={sendTasksToManager} className={BTN}>
-            <Send className="w-4 h-4 text-emerald-600" /> Wyślij zadania
-          </button>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <div>
+            <button onClick={importPlanToTasks} className={BTN}>
+              <CalendarDays className="w-4 h-4" /> Importuj plan
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={addTask} className={BTN}>
+              <Plus className="w-4 h-4" /> Dodaj zadanie
+            </button>
+            <button onClick={sendTasksToManager} className={BTN}>
+              <Send className="w-4 h-4 text-emerald-600" /> Wyślij zadania
+            </button>
+          </div>
         </div>
       </section>
     </motion.div>
