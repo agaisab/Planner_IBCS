@@ -971,8 +971,52 @@ Status: ${task.status || '-'}`;
 
       const nextTask = { ...targetTask, ...patch };
       const nightBoundaryMinutes = 22 * 60;
+      const planEndMinutesSpan = spanEnd ? toMinutes(spanEnd) : null;
       const startMinutes = toMinutes(nextTask.start);
       const endMinutes = toMinutes(nextTask.end);
+      const crossesOvertime =
+        Number.isFinite(planEndMinutesSpan) &&
+        Number.isFinite(startMinutes) &&
+        Number.isFinite(endMinutes) &&
+        startMinutes < endMinutes &&
+        startMinutes < planEndMinutesSpan &&
+        endMinutes > planEndMinutesSpan;
+
+      if (crossesOvertime) {
+        let shouldSplitOvertime = true;
+        if (typeof window !== 'undefined') {
+          const message = [
+            `Zadanie ${nextTask.start || '—'}–${nextTask.end || '—'} przekracza plan dnia (koniec planu ${spanEnd}).`,
+            `Czy utworzyć dodatkowe zadanie z nadgodzinami ${spanEnd}–${nextTask.end || '—'}?`
+          ].join('\n');
+          shouldSplitOvertime = window.confirm(message);
+        }
+
+        if (shouldSplitOvertime) {
+          const overtimeId = `t${Date.now()}`;
+          setSubDraft((prev) => {
+            const items = prev.items || [];
+            const index = items.findIndex((item) => item.id === id);
+            if (index === -1) return prev;
+
+            const updated = items.map((item, i) =>
+              i === index ? { ...item, ...patch, end: spanEnd } : item
+            );
+
+            const overtimeTask = {
+              ...nextTask,
+              id: overtimeId,
+              start: spanEnd,
+              locked: false
+            };
+            updated.splice(index + 1, 0, overtimeTask);
+
+            return { ...prev, items: updated };
+          });
+          return;
+        }
+      }
+
       const crossesNight =
         Number.isFinite(startMinutes) &&
         Number.isFinite(endMinutes) &&
@@ -1095,7 +1139,7 @@ Status: ${task.status || '-'}`;
         return { ...prev, items: updatedItems };
       });
     },
-    [setTask, shifts, taskItems, setSubDraft, selectedDate]
+    [setTask, shifts, taskItems, setSubDraft, selectedDate, spanEnd]
   );
 
   const handleTaskLock = useCallback(
