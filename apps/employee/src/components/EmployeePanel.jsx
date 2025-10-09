@@ -535,6 +535,7 @@ export default function EmployeePanel() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [monthCursor, setMonthCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [calendarOpen, setCalendarOpen] = useState(true);
+  const [planCollapsed, setPlanCollapsed] = useState(false);
   const [taskActionsMenu, setTaskActionsMenu] = useState({ id: null, rect: null });
   const taskActionRefs = useRef({});
   const [splitPrompt, setSplitPrompt] = useState(null);
@@ -693,6 +694,9 @@ export default function EmployeePanel() {
   useEffect(() => {
     setDraftDay(createDraft(sentDay));
   }, [selectedEmployee?.id, dKey, sentDay]);
+  useEffect(() => {
+    setPlanCollapsed(false);
+  }, [selectedEmployee?.id, dKey]);
 
   const shifts = draftDay.shifts || [];
   const planned = shifts.reduce((acc, s) => acc + (toMinutes(s.end) - toMinutes(s.start)), 0);
@@ -781,7 +785,7 @@ export default function EmployeePanel() {
     ? submitted.dayStatus || computeDayStatus(submitted.items, planned)
     : 'W trakcie';
 
-  const taskItems = subDraft.items || [];
+  const taskItems = useMemo(() => subDraft.items || [], [subDraft.items]);
   useEffect(() => {
     if (!taskItems.length) {
       setTaskActionsMenu({ id: null, rect: null });
@@ -926,6 +930,77 @@ Status: ${task.status || '-'}`;
 
   const handleTaskFieldChange = useCallback(
     (id, patch) => {
+      const currentItems = taskItems;
+      const targetTask = currentItems.find((item) => item.id === id);
+
+      if (!targetTask) {
+        setTask(id, patch);
+        return;
+      }
+
+      const timeFieldsChanged = 'start' in patch || 'end' in patch;
+      if (!timeFieldsChanged) {
+        setTask(id, patch);
+        return;
+      }
+
+      const nextTask = { ...targetTask, ...patch };
+      const nightBoundaryMinutes = 22 * 60;
+      const startMinutes = toMinutes(nextTask.start);
+      const endMinutes = toMinutes(nextTask.end);
+      const crossesNight =
+        Number.isFinite(startMinutes) &&
+        Number.isFinite(endMinutes) &&
+        startMinutes < endMinutes &&
+        startMinutes < nightBoundaryMinutes &&
+        endMinutes > nightBoundaryMinutes;
+
+      if (crossesNight && computeWorkKindFor(nextTask, selectedDate, shifts) === 'Nocne') {
+        const nightLabel = minutesToHHmm(nightBoundaryMinutes);
+        let shouldSplit = true;
+
+        if (typeof window !== 'undefined') {
+          const message = [
+            `Zadanie ${nextTask.start || '—'}–${nextTask.end || '—'} obejmuje zarówno nadgodziny, jak i godziny nocne.`,
+            `Czy chcesz rozdzielić je na dwa zadania: ${nextTask.start || '—'}–${nightLabel} oraz ${nightLabel}–${nextTask.end || '—'}?`
+          ].join('\n');
+          shouldSplit = window.confirm(message);
+        }
+
+        if (shouldSplit) {
+          const newTaskId = `t${Date.now()}`;
+          setSubDraft((prev) => {
+            const items = prev.items || [];
+            const index = items.findIndex((item) => item.id === id);
+            if (index === -1) return prev;
+
+            const updated = [...items];
+            updated.splice(index, 1);
+
+            if (
+              nextTask.end &&
+              updated[index] &&
+              updated[index].start === nightLabel &&
+              updated[index].end === nextTask.end
+            ) {
+              updated.splice(index, 1);
+            }
+
+            const firstTask = { ...nextTask, end: nightLabel };
+            const secondTask = {
+              ...nextTask,
+              id: newTaskId,
+              start: nightLabel,
+              locked: false
+            };
+
+            updated.splice(index, 0, firstTask, secondTask);
+            return { ...prev, items: updated };
+          });
+          return;
+        }
+      }
+
       if (!('end' in patch)) {
         setTask(id, patch);
         return;
@@ -937,10 +1012,7 @@ Status: ${task.status || '-'}`;
         .sort()
         .slice(-1)[0];
 
-      const currentItems = subDraft.items || [];
-      const targetTask = currentItems.find((item) => item.id === id);
-
-      if (!planEnd || !targetTask) {
+      if (!planEnd) {
         setTask(id, patch);
         return;
       }
@@ -998,7 +1070,7 @@ Status: ${task.status || '-'}`;
         return { ...prev, items: updatedItems };
       });
     },
-    [setTask, shifts, subDraft.items, setSubDraft]
+    [setTask, shifts, taskItems, setSubDraft, selectedDate]
   );
 
   const handleTaskLock = useCallback(
@@ -1218,118 +1290,175 @@ Status: ${task.status || '-'}`;
             })}
           </div>
 
-          <div className="space-y-3">
-            {shifts.length === 0 && (
-              <div className="rounded-xl border-2 border-dashed border-slate-300 p-4 text-sm text-slate-500">
-                Brak zakresów czasu. Dodaj pierwszy segment.
+          {planCollapsed ? (
+            <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-4 space-y-3">
+              <div className="text-base font-semibold text-slate-700">
+                {summarizePlan(draftDay)}
               </div>
-            )}
-            {shifts.map((segment, idx) => {
-              const disableTimes = ['VACATION', 'SICK', 'ABSENCE'].includes(segment.mode);
-              return (
-                <div key={idx} className="rounded-xl border-2 border-slate-300 p-3">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
-                    <label className="text-sm block">
-                      Start
-                      <TimeSelect
-                        value={segment.start}
-                        onChange={(value) => setSegField(idx, 'start', value)}
-                        disabled={disableTimes}
-                      />
-                    </label>
-                    <label className="text-sm block">
-                      Koniec
-                      <TimeSelect
-                        value={segment.end}
-                        onChange={(value) => setSegField(idx, 'end', value)}
-                        disabled={disableTimes}
-                      />
-                    </label>
-                    <label className="text-sm block">
-                      Tryb pracy
-                      <ModeChooser value={segment.mode || 'OFFICE'} onChange={(mode) => setSegField(idx, 'mode', mode)} />
-                    </label>
-                    <div className="flex items-center justify-end">
-                      {shifts.length > 1 && (
-                        <button
-                          onClick={() => delSegment(idx)}
-                          className="rounded-lg border-2 border-slate-300 px-2 py-2 hover:bg-slate-50"
-                          aria-label="Usuń segment"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <label className="text-sm block mt-2">
-                    Notatka
-                    <input
-                      value={segment.note || ''}
-                      onChange={(e) => setSegField(idx, 'note', e.target.value)}
-                      className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2 min-w-0"
-                      placeholder="np. notatka"
-                    />
-                  </label>
-                </div>
-              );
-            })}
-          </div>
-
-          {planned > 480 && (
-            <div className="mt-3 rounded-xl border-2 border-rose-300 bg-rose-50 text-rose-700 px-3 py-2 text-sm">
-              Przekroczono 8 h – łączny plan dnia to {minutesToHHmm(planned)}.
-            </div>
-          )}
-
-          <div className="mt-4 pt-3 border-t flex items-center justify-between gap-2">
-            <div className="text-xs text-slate-500">Łącznie: {minutesToHHmm(planned)}</div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={addSegment}
-                disabled={planned >= 480}
-                className="rounded-full border-2 border-slate-300 p-2 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Dodaj zakres"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-              <button onClick={sendPlanToManager} className={BTN}>
-                <Send className="w-4 h-4 text-emerald-600" /> Wyślij
-              </button>
-            </div>
-          </div>
-
-          {logsList.length > 0 && (
-            <div className="mt-4 rounded-xl border-2 border-slate-300 bg-slate-50 p-3">
-              <div className="text-sm font-medium mb-2">Logi</div>
-              <ul className="space-y-2 text-sm">
-                {logsList.map((log, idx) => {
-                  const type = log.type || '';
-                  const Icon = type === 'EMP_PLAN_MOD' ? Pencil : type === 'EMP_SUBMIT' ? Send : CalIcon;
-                  const who = type.startsWith('EMP_') ? 'Pracownik' : 'Kierownik';
-                  const action =
-                    type === 'EMP_PLAN_MOD'
-                      ? 'Zmiana planu'
-                      : type === 'EMP_SUBMIT'
-                      ? 'Wysłano zadania'
-                      : 'Wysłano plan';
-                  return (
-                    <li key={`${log.at}-${idx}`} className="flex items-start gap-2">
-                      <Icon className="w-4 h-4 text-slate-700 mt-0.5" />
-                      <div>
-                        <div className="text-slate-700">
-                          {who}: {action}{' '}
-                          <span className="text-slate-400">
-                            • {log.at ? new Date(log.at).toLocaleString('pl-PL') : '—'}
-                          </span>
+              <div className="text-sm text-slate-500">
+                Łącznie: <span className="text-base font-semibold text-slate-700">{minutesToHHmm(planned)}</span>
+              </div>
+              {shifts.length > 0 ? (
+                <ul className="space-y-2 text-sm">
+                  {shifts.map((segment, idx) => {
+                    const meta = MODE_META[segment.mode || 'OFFICE'];
+                    const hasTimes = segment.start && segment.end;
+                    const timeLabel = hasTimes ? `${segment.start} - ${segment.end}` : '—';
+                    return (
+                      <li key={idx} className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex-1 text-sm text-slate-600">
+                          <span className="text-base font-semibold text-slate-700">{timeLabel}</span>
+                          {segment.note && <span className="text-sm text-slate-500"> - {segment.note}</span>}
                         </div>
-                        <div className="text-slate-600 whitespace-pre-line">{stripActor(log.text)}</div>
+                        <span
+                          className={cls(
+                            CHIP,
+                            meta?.base,
+                            meta?.border,
+                            meta?.text
+                          )}
+                        >
+                          <span className={cls('inline-block h-2 w-2 rounded-full', meta?.dot)} /> {meta?.label || '—'}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="text-sm text-slate-500">Brak zakresów czasu.</div>
+              )}
+              {draftDay.note && (
+                <div className="text-xs text-slate-500">
+                  <span className="font-medium text-slate-600">Notatka:</span> {draftDay.note}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="space-y-3">
+                {shifts.length === 0 && (
+                  <div className="rounded-xl border-2 border-dashed border-slate-300 p-4 text-sm text-slate-500">
+                    Brak zakresów czasu. Dodaj pierwszy segment.
+                  </div>
+                )}
+                {shifts.map((segment, idx) => {
+                  const disableTimes = ['VACATION', 'SICK', 'ABSENCE'].includes(segment.mode);
+                  return (
+                    <div key={idx} className="rounded-xl border-2 border-slate-300 p-3">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                        <label className="text-sm block">
+                          Start
+                          <TimeSelect
+                            value={segment.start}
+                            onChange={(value) => setSegField(idx, 'start', value)}
+                            disabled={disableTimes}
+                          />
+                        </label>
+                        <label className="text-sm block">
+                          Koniec
+                          <TimeSelect
+                            value={segment.end}
+                            onChange={(value) => setSegField(idx, 'end', value)}
+                            disabled={disableTimes}
+                          />
+                        </label>
+                        <label className="text-sm block">
+                          Tryb pracy
+                          <ModeChooser value={segment.mode || 'OFFICE'} onChange={(mode) => setSegField(idx, 'mode', mode)} />
+                        </label>
+                        <div className="flex items-center justify-end">
+                          {shifts.length > 1 && (
+                            <button
+                              onClick={() => delSegment(idx)}
+                              className="rounded-lg border-2 border-slate-300 px-2 py-2 hover:bg-slate-50"
+                              aria-label="Usuń segment"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </li>
+                      <label className="text-sm block mt-2">
+                        Notatka
+                        <input
+                          value={segment.note || ''}
+                          onChange={(e) => setSegField(idx, 'note', e.target.value)}
+                          className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2 min-w-0"
+                          placeholder="np. notatka"
+                        />
+                      </label>
+                    </div>
                   );
                 })}
-              </ul>
-            </div>
+              </div>
+
+              {planned > 480 && (
+                <div className="mt-3 rounded-xl border-2 border-rose-300 bg-rose-50 text-rose-700 px-3 py-2 text-sm">
+                  Przekroczono 8 h – łączny plan dnia to {minutesToHHmm(planned)}.
+                </div>
+              )}
+
+              <div className="mt-4 pt-3 border-t flex items-center justify-between gap-2">
+                <div className="text-xs text-slate-500">Łącznie: {minutesToHHmm(planned)}</div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={addSegment}
+                    disabled={planned >= 480}
+                    className="rounded-full border-2 border-slate-300 p-2 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Dodaj zakres"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                  <button onClick={sendPlanToManager} className={BTN}>
+                    <Send className="w-4 h-4 text-emerald-600" /> Wyślij
+                  </button>
+                </div>
+              </div>
+
+              {logsList.length > 0 && (
+                <div className="mt-4 rounded-xl border-2 border-slate-300 bg-slate-50 p-3">
+                  <div className="text-sm font-medium mb-2">Logi</div>
+                  <ul className="space-y-2 text-sm">
+                    {logsList.map((log, idx) => {
+                      const type = log.type || '';
+                      const Icon = type === 'EMP_PLAN_MOD' ? Pencil : type === 'EMP_SUBMIT' ? Send : CalIcon;
+                      const who = type.startsWith('EMP_') ? 'Pracownik' : 'Kierownik';
+                      const action =
+                        type === 'EMP_PLAN_MOD'
+                          ? 'Zmiana planu'
+                          : type === 'EMP_SUBMIT'
+                          ? 'Wysłano zadania'
+                          : 'Wysłano plan';
+                      return (
+                        <li key={`${log.at}-${idx}`} className="flex items-start gap-2">
+                          <Icon className="w-4 h-4 text-slate-700 mt-0.5" />
+                          <div>
+                            <div className="text-slate-700">
+                              {who}: {action}{' '}
+                              <span className="text-slate-400">
+                                • {log.at ? new Date(log.at).toLocaleString('pl-PL') : '—'}
+                              </span>
+                            </div>
+                            <div className="text-slate-600 whitespace-pre-line">{stripActor(log.text)}</div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </>
           )}
+
+          <div className="mt-4 flex justify-center">
+            <button
+              onClick={() => setPlanCollapsed((prev) => !prev)}
+              className="rounded-full border-2 border-slate-300 p-1.5 hover:bg-slate-50 transition-colors"
+              aria-label={planCollapsed ? 'Rozwiń plan' : 'Zwiń plan'}
+            >
+              <ChevronDown className={cls('w-4 h-4 transition-transform', !planCollapsed && 'rotate-180')} />
+            </button>
+          </div>
         </section>
 
         {calendarOpen && (

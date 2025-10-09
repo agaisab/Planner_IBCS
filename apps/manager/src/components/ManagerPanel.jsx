@@ -385,6 +385,7 @@ export default function ManagerPanel() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [monthCursor, setMonthCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [calendarOpen, setCalendarOpen] = useState(true);
+  const [managerPlanCollapsed, setManagerPlanCollapsed] = useState(false);
 
   const [empModalOpen, setEmpModalOpen] = useState(false);
   const [empMode, setEmpMode] = useState('create');
@@ -532,9 +533,19 @@ export default function ManagerPanel() {
   useEffect(() => {
     setDraftDay(createDraft(sentDay));
   }, [selectedEmployee?.id, dKey, sentDay]);
+  useEffect(() => {
+    setManagerPlanCollapsed(false);
+  }, [selectedEmployee?.id, dKey]);
 
   const shifts = draftDay.shifts || [];
   const plannedMinutes = shifts.reduce((acc, shift) => acc + (toMinutes(shift.end) - toMinutes(shift.start)), 0);
+  const planSpanLabel = useMemo(() => {
+    const starts = shifts.map((shift) => shift.start).filter(Boolean).sort();
+    const ends = shifts.map((shift) => shift.end).filter(Boolean).sort();
+    const start = starts[0];
+    const end = ends[ends.length - 1];
+    return start && end ? `${start}–${end}` : '—';
+  }, [shifts]);
   const dayStatus = draftDay.dirty ? 'EDITED' : sentDay ? 'SENT' : shifts.length ? 'SAVED' : 'NONE';
 
   const addSegment = () =>
@@ -1060,12 +1071,12 @@ export default function ManagerPanel() {
           />
         </aside>
 
-        <section className={CARD}>
-          <div className="mb-3 flex items-center justify-between">
-            <div className="font-medium">
-              Plan kierownika (ramowy) – <span className="text-slate-600">{selectedEmployee?.name ?? '—'}</span>
-            </div>
-            {dayStatus !== 'NONE' && (
+      <section className={CARD}>
+        <div className="mb-3 flex items-center justify-between">
+          <div className="font-medium">
+            Plan kierownika (ramowy) – <span className="text-slate-600">{selectedEmployee?.name ?? '—'}</span>
+          </div>
+          {dayStatus !== 'NONE' && (
               <span
                 className={cls(
                   CHIP,
@@ -1079,135 +1090,187 @@ export default function ManagerPanel() {
                 {dayStatus === 'SENT' ? 'Wysłane' : dayStatus === 'SAVED' ? 'Zapisane' : 'Edytowane'}
               </span>
             )}
-          </div>
-          <div className="text-sm text-slate-500 mb-2 flex items-center gap-2">
-            <CalendarDays className="w-4 h-4" />
-            {selectedDate.toLocaleDateString('pl-PL', {
-              weekday: 'long',
-              day: '2-digit',
-              month: 'long',
-              year: 'numeric'
-            })}
-          </div>
+        </div>
+        <div className="text-sm text-slate-500 mb-2 flex items-center gap-2">
+          <CalendarDays className="w-4 h-4" />
+          {selectedDate.toLocaleDateString('pl-PL', {
+            weekday: 'long',
+            day: '2-digit',
+            month: 'long',
+            year: 'numeric'
+          })}
+        </div>
 
-          <div className="space-y-3">
-            {shifts.length === 0 && (
-              <div className="rounded-xl border-2 border-dashed border-slate-300 p-4 text-sm text-slate-500">
-                Brak zakresów czasu. Dodaj pierwszy segment.
-              </div>
-            )}
-            {shifts.map((segment, idx) => (
-              <div key={idx} className="rounded-xl border-2 border-slate-300 p-3">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
-                  <label className="text-sm block">
-                    Start
-                    <TimeSelect value={segment.start} onChange={(value) => setSegField(idx, 'start', value)} />
-                  </label>
-                  <label className="text-sm block">
-                    Koniec
-                    <TimeSelect value={segment.end} onChange={(value) => setSegField(idx, 'end', value)} />
-                  </label>
-                  <label className="text-sm block">
-                    Tryb pracy
-                    <ModeChooser value={segment.mode || 'OFFICE'} onChange={(mode) => setSegField(idx, 'mode', mode)} />
-                  </label>
-                  <div className="flex items-center justify-end">
-                    {shifts.length > 1 && (
-                      <button
-                        onClick={() => delSegment(idx)}
-                        className="rounded-lg border-2 border-slate-300 px-2 py-2 hover:bg-slate-50"
-                        aria-label="Usuń segment"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <label className="text-sm block mt-2">
-                  Notatka
-                  <input
-                    value={segment.note || ''}
-                    onChange={(e) => setSegField(idx, 'note', e.target.value)}
-                    className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2 min-w-0"
-                    placeholder="np. notatka"
-                  />
-                </label>
-              </div>
-            ))}
-          </div>
-
-          {plannedMinutes > 480 && (
-            <div className="mt-3 rounded-xl border-2 border-rose-300 bg-rose-50 text-rose-700 px-3 py-2 text-sm">
-              Przekroczono 8 h – łączny plan dnia to {minutesToHHmm(plannedMinutes)}.
-            </div>
-          )}
-
-          <div className="mt-4 pt-3 border-t flex items-center justify-between gap-2">
-            <div className="text-xs text-slate-500">Łącznie: {minutesToHHmm(plannedMinutes)}</div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={addSegment}
-                disabled={plannedMinutes >= 480}
-                className="rounded-full border-2 border-slate-300 p-2 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Dodaj zakres"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-              <button onClick={sendPlan} className={BTN}>
-                <Send className="w-4 h-4 text-emerald-600" /> Wyślij
-              </button>
-            </div>
-          </div>
-
-          {(sentDay || monthlyLogsSel.length > 0) && (
-            <div className="mt-4 rounded-xl border-2 border-slate-300 bg-slate-50 p-3">
-              <div className="text-sm font-medium mb-2 flex items-center justify-between">
-                <span>Logi</span>
-                <button
-                  onClick={() => setLogsConfirmOpen(true)}
-                  disabled={!hasLogs}
-                  className="rounded-lg border px-2 py-1 hover:bg-slate-100 text-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Wyczyść logi"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-              {logsList.length === 0 && <div className="text-sm text-slate-500">Brak wpisów logów.</div>}
-              {logsList.length > 0 && (
+        {managerPlanCollapsed ? (
+          <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-4 space-y-3">
+            {shifts.length > 0 ? (
+              <>
                 <ul className="space-y-2 text-sm">
-                  {logsList.map((log, idx) => {
-                    const type = log.type || '';
-                    const Icon = type === 'EMP_PLAN_MOD' ? Pencil : type === 'EMP_SUBMIT' ? Send : CalIcon;
-                    const who = type === 'SENT' || type === 'AUTO_MONTH' ? 'Kierownik' : 'Pracownik';
-                    const action =
-                      type === 'SENT'
-                        ? 'Wysłano plan'
-                        : type === 'AUTO_MONTH'
-                        ? 'Planowanie'
-                        : type === 'EMP_PLAN_MOD'
-                        ? 'Zmieniono plan'
-                        : 'Wysłano zadania';
-                    const cleaned = (log.text || '').replace(/^Pracownik: /, '').replace(/^Kierownik: /, '');
+                  {shifts.map((segment, idx) => {
+                    const meta = MODE_META[segment.mode || 'OFFICE'];
+                    const hasTimes = segment.start && segment.end;
+                    const timeLabel = hasTimes ? `${segment.start} - ${segment.end}` : '—';
+                    const note = segment.note ? ` - ${segment.note}` : '';
                     return (
-                      <li key={`${log.at}-${idx}`} className="flex items-start gap-2">
-                        <Icon className="w-4 h-4 text-slate-700 mt-0.5" />
-                        <div>
-                          <div className="text-slate-700">
-                            {who}: {action}{' '}
-                            <span className="text-slate-400">
-                              • {log.at ? new Date(log.at).toLocaleString('pl-PL') : '—'}
-                            </span>
-                          </div>
-                          {cleaned && <div className="text-slate-600 whitespace-pre-line">{cleaned}</div>}
+                      <li key={idx} className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex-1 text-sm text-slate-600">
+                          <span className="text-base font-semibold text-slate-700">{timeLabel}</span>
+                          {note && <span className="text-sm text-slate-500">{note}</span>}
                         </div>
+                        <span
+                          className={cls(
+                            CHIP,
+                            meta?.base,
+                            meta?.border,
+                            meta?.text
+                          )}
+                        >
+                          <span className={cls('inline-block h-2 w-2 rounded-full', meta?.dot)} /> {meta?.label || '—'}
+                        </span>
                       </li>
                     );
                   })}
                 </ul>
+                <div className="text-sm text-slate-500">
+                  Łącznie: <span className="text-base font-semibold text-slate-700">{minutesToHHmm(plannedMinutes)}</span>
+                </div>
+              </>
+            ) : (
+              <div className="text-sm text-slate-500">Brak zakresów czasu.</div>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="space-y-3">
+              {shifts.length === 0 && (
+                <div className="rounded-xl border-2 border-dashed border-slate-300 p-4 text-sm text-slate-500">
+                  Brak zakresów czasu. Dodaj pierwszy segment.
+                </div>
               )}
+              {shifts.map((segment, idx) => (
+                <div key={idx} className="rounded-xl border-2 border-slate-300 p-3">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                    <label className="text-sm block">
+                      Start
+                      <TimeSelect value={segment.start} onChange={(value) => setSegField(idx, 'start', value)} />
+                    </label>
+                    <label className="text-sm block">
+                      Koniec
+                      <TimeSelect value={segment.end} onChange={(value) => setSegField(idx, 'end', value)} />
+                    </label>
+                    <label className="text-sm block">
+                      Tryb pracy
+                      <ModeChooser value={segment.mode || 'OFFICE'} onChange={(mode) => setSegField(idx, 'mode', mode)} />
+                    </label>
+                    <div className="flex items-center justify-end">
+                      {shifts.length > 1 && (
+                        <button
+                          onClick={() => delSegment(idx)}
+                          className="rounded-lg border-2 border-slate-300 px-2 py-2 hover:bg-slate-50"
+                          aria-label="Usuń segment"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <label className="text-sm block mt-2">
+                    Notatka
+                    <input
+                      value={segment.note || ''}
+                      onChange={(e) => setSegField(idx, 'note', e.target.value)}
+                      className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2 min-w-0"
+                      placeholder="np. notatka"
+                    />
+                  </label>
+                </div>
+              ))}
             </div>
-          )}
-        </section>
+
+            {plannedMinutes > 480 && (
+              <div className="mt-3 rounded-xl border-2 border-rose-300 bg-rose-50 text-rose-700 px-3 py-2 text-sm">
+                Przekroczono 8 h – łączny plan dnia to {minutesToHHmm(plannedMinutes)}.
+              </div>
+            )}
+
+            <div className="mt-4 pt-3 border-t flex items-center justify-between gap-2">
+              <div className="text-xs text-slate-500">Łącznie: {minutesToHHmm(plannedMinutes)}</div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={addSegment}
+                  disabled={plannedMinutes >= 480}
+                  className="rounded-full border-2 border-slate-300 p-2 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Dodaj zakres"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+                <button onClick={sendPlan} className={BTN}>
+                  <Send className="w-4 h-4 text-emerald-600" /> Wyślij
+                </button>
+              </div>
+            </div>
+
+            {(sentDay || monthlyLogsSel.length > 0) && (
+              <div className="mt-4 rounded-xl border-2 border-slate-300 bg-slate-50 p-3">
+                <div className="text-sm font-medium mb-2 flex items-center justify-between">
+                  <span>Logi</span>
+                  <button
+                    onClick={() => setLogsConfirmOpen(true)}
+                    disabled={!hasLogs}
+                    className="rounded-lg border px-2 py-1 hover:bg-slate-100 text-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Wyczyść logi"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+                {logsList.length === 0 && <div className="text-sm text-slate-500">Brak wpisów logów.</div>}
+                {logsList.length > 0 && (
+                  <ul className="space-y-2 text-sm">
+                    {logsList.map((log, idx) => {
+                      const type = log.type || '';
+                      const Icon = type === 'EMP_PLAN_MOD' ? Pencil : type === 'EMP_SUBMIT' ? Send : CalIcon;
+                      const who = type === 'SENT' || type === 'AUTO_MONTH' ? 'Kierownik' : 'Pracownik';
+                      const action =
+                        type === 'SENT'
+                          ? 'Wysłano plan'
+                          : type === 'AUTO_MONTH'
+                          ? 'Planowanie'
+                          : type === 'EMP_PLAN_MOD'
+                          ? 'Zmieniono plan'
+                          : 'Wysłano zadania';
+                      const cleaned = (log.text || '').replace(/^Pracownik: /, '').replace(/^Kierownik: /, '');
+                      return (
+                        <li key={`${log.at}-${idx}`} className="flex items-start gap-2">
+                          <Icon className="w-4 h-4 text-slate-700 mt-0.5" />
+                          <div>
+                            <div className="text-slate-700">
+                              {who}: {action}{' '}
+                              <span className="text-slate-400">
+                                • {log.at ? new Date(log.at).toLocaleString('pl-PL') : '—'}
+                              </span>
+                            </div>
+                            {cleaned && <div className="text-slate-600 whitespace-pre-line">{cleaned}</div>}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={() => setManagerPlanCollapsed((prev) => !prev)}
+            className="rounded-full border-2 border-slate-300 p-1.5 hover:bg-slate-50 transition-colors"
+            aria-label={managerPlanCollapsed ? 'Rozwiń plan' : 'Zwiń plan'}
+          >
+            <ChevronDown className={cls('w-4 h-4 transition-transform', !managerPlanCollapsed && 'rotate-180')} />
+          </button>
+        </div>
+      </section>
 
         {calendarOpen && (
           <aside className={cls(CARD, 'h-fit sticky top-6')}>
@@ -1255,6 +1318,7 @@ export default function ManagerPanel() {
         <div className="flex items-center justify-between mb-3">
           <div className="font-medium">Zadania ( wysłane przez pracownika )</div>
         </div>
+
         {!sentSubmission && <p className="text-sm text-slate-500">Brak rozliczeń dla wybranego dnia.</p>}
         {sentSubmission && (
           <div>
@@ -1270,19 +1334,13 @@ export default function ManagerPanel() {
                 {dayOverallSettled ? 'Rozliczone' : 'W trakcie'}
               </span>
               <span className="text-slate-400">|</span>
-              <span className="text-slate-600">
-                Plan:{' '}
-                {(() => {
-                  const starts = shifts.map((shift) => shift.start).filter(Boolean).sort();
-                  const ends = shifts.map((shift) => shift.end).filter(Boolean).sort();
-                  const start = starts[0];
-                  const end = ends[ends.length - 1];
-                  return start && end ? `${start}–${end}` : '—';
-                })()}{' '}
-                ({minutesToHHmm(plannedMinutes)} h)
+              <span className="text-base font-semibold text-slate-700">
+                Plan: {planSpanLabel} ({minutesToHHmm(plannedMinutes)} h)
               </span>
               <span className="text-slate-400">/</span>
-              <span className="text-slate-600">Zgłoszono: {minutesToHHmm(reportedMinutesCalc)} h</span>
+              <span className="text-base font-semibold text-slate-700">
+                Zgłoszono: {minutesToHHmm(reportedMinutesCalc)} h
+              </span>
             </div>
             <div className="overflow-x-auto rounded-xl border-2 border-slate-300">
               <table className="min-w-full text-sm">

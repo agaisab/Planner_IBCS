@@ -575,17 +575,23 @@
         {
           "mode": "OFFICE",
           "start": "08:00",
-          "end": "16:00"
+          "end": "16:00",
+          "note": "BD - Instalacja"
         }
       ],
       "note": "",
       "sent": true,
-      "sentAt": "2025-10-09T07:17:17.695Z",
+      "sentAt": "2025-10-09T08:14:46.202Z",
       "logs": [
         {
-          "type": "EMP_PLAN_MOD",
-          "at": "2025-10-09T07:17:17.695Z",
-          "text": "Pracownik: 08:00–16:00 Biuro"
+          "type": "SENT",
+          "at": "2025-10-09T07:46:52.847Z",
+          "text": "08:00–16:00 Biuro"
+        },
+        {
+          "type": "SENT",
+          "at": "2025-10-09T08:14:46.202Z",
+          "text": "08:00–16:00 Biuro"
         }
       ]
     }
