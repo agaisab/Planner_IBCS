@@ -575,13 +575,19 @@
         {
           "mode": "OFFICE",
           "start": "08:00",
-          "end": "16:00",
+          "end": "15:00",
           "note": "BD - Instalacja"
+        },
+        {
+          "mode": "OFFICE",
+          "start": "15:00",
+          "end": "16:00",
+          "note": "Interfiber - Aplikatory "
         }
       ],
       "note": "",
       "sent": true,
-      "sentAt": "2025-10-09T08:14:46.202Z",
+      "sentAt": "2025-10-09T08:19:05.372Z",
       "logs": [
         {
           "type": "SENT",
@@ -592,6 +598,16 @@
           "type": "SENT",
           "at": "2025-10-09T08:14:46.202Z",
           "text": "08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_MOD",
+          "at": "2025-10-09T08:18:54.383Z",
+          "text": "Pracownik: 08:00–15:00 Biuro · 15:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_MOD",
+          "at": "2025-10-09T08:19:05.372Z",
+          "text": "Pracownik: 08:00–15:00 Biuro · 15:00–16:00 Biuro"
         }
       ]
     }

@@ -550,15 +550,28 @@ export default function ManagerPanel() {
 
   const addSegment = () =>
     setDraftDay((prev) => {
-      const last = prev.shifts?.[prev.shifts.length - 1];
+      const prevShifts = prev.shifts || [];
+      const totalMinutes = prevShifts.reduce(
+        (acc, seg) => acc + Math.max(0, toMinutes(seg.end) - toMinutes(seg.start)),
+        0
+      );
+      const remaining = 480 - totalMinutes;
+      if (remaining <= 0) return prev;
+
+      const last = prevShifts[prevShifts.length - 1];
       const defaultStart = last ? last.end || '08:00' : '';
-      const startMinutes = toMinutes(defaultStart || '00:00');
-      const defaultEnd = minutesToHHmm(Math.min((defaultStart ? startMinutes + 240 : startMinutes) || 0, 24 * 60));
-      const segment = { mode: 'OFFICE', start: defaultStart, end: defaultStart ? defaultEnd : '' };
-      const next = [...(prev.shifts || []), segment];
-      const sum = next.reduce((acc, seg) => acc + (toMinutes(seg.end) - toMinutes(seg.start)), 0);
-      if (sum > 480) return prev;
-      return { ...prev, shifts: next, dirty: true };
+      let segment = { mode: 'OFFICE', start: defaultStart, end: '' };
+
+      if (defaultStart) {
+        const startMinutes = toMinutes(defaultStart);
+        const endMinutes = Math.min(startMinutes + Math.min(remaining, 240), 24 * 60);
+        segment = {
+          ...segment,
+          end: minutesToHHmm(endMinutes)
+        };
+      }
+
+      return { ...prev, shifts: [...prevShifts, segment], dirty: true };
     });
 
   const delSegment = (idx) =>

@@ -707,15 +707,28 @@ export default function EmployeePanel() {
 
   const addSegment = () =>
     setDraftDay((prev) => {
-      const last = prev.shifts?.[prev.shifts.length - 1];
+      const prevShifts = prev.shifts || [];
+      const totalMinutes = prevShifts.reduce(
+        (acc, seg) => acc + Math.max(0, toMinutes(seg.end) - toMinutes(seg.start)),
+        0
+      );
+      const remaining = 480 - totalMinutes;
+      if (remaining <= 0) return prev;
+
+      const last = prevShifts[prevShifts.length - 1];
       const defaultStart = last ? last.end || '08:00' : '';
-      const startMinutes = toMinutes(defaultStart || '00:00');
-      const defaultEnd = minutesToHHmm(Math.min((defaultStart ? startMinutes + 240 : startMinutes) || 0, 24 * 60));
-      const segment = { mode: 'OFFICE', start: defaultStart, end: defaultStart ? defaultEnd : '' };
-      const next = [...(prev.shifts || []), segment];
-      const sum = next.reduce((acc, seg) => acc + (toMinutes(seg.end) - toMinutes(seg.start)), 0);
-      if (sum > 480) return prev;
-      return { ...prev, shifts: next, dirty: true };
+      let segment = { mode: 'OFFICE', start: defaultStart, end: '' };
+
+      if (defaultStart) {
+        const startMinutes = toMinutes(defaultStart);
+        const endMinutes = Math.min(startMinutes + Math.min(remaining, 240), 24 * 60);
+        segment = {
+          ...segment,
+          end: minutesToHHmm(endMinutes)
+        };
+      }
+
+      return { ...prev, shifts: [...prevShifts, segment], dirty: true };
     });
 
   const delSegment = (idx) =>
@@ -1292,45 +1305,45 @@ Status: ${task.status || '-'}`;
 
           {planCollapsed ? (
             <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-4 space-y-3">
-              <div className="text-base font-semibold text-slate-700">
-                {summarizePlan(draftDay)}
-              </div>
-              <div className="text-sm text-slate-500">
-                Łącznie: <span className="text-base font-semibold text-slate-700">{minutesToHHmm(planned)}</span>
-              </div>
               {shifts.length > 0 ? (
-                <ul className="space-y-2 text-sm">
-                  {shifts.map((segment, idx) => {
-                    const meta = MODE_META[segment.mode || 'OFFICE'];
-                    const hasTimes = segment.start && segment.end;
-                    const timeLabel = hasTimes ? `${segment.start} - ${segment.end}` : '—';
-                    return (
-                      <li key={idx} className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex-1 text-sm text-slate-600">
-                          <span className="text-base font-semibold text-slate-700">{timeLabel}</span>
-                          {segment.note && <span className="text-sm text-slate-500"> - {segment.note}</span>}
-                        </div>
-                        <span
-                          className={cls(
-                            CHIP,
-                            meta?.base,
-                            meta?.border,
-                            meta?.text
-                          )}
-                        >
-                          <span className={cls('inline-block h-2 w-2 rounded-full', meta?.dot)} /> {meta?.label || '—'}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
+                <>
+                  <ul className="space-y-2 text-sm">
+                    {shifts.map((segment, idx) => {
+                      const meta = MODE_META[segment.mode || 'OFFICE'];
+                      const hasTimes = segment.start && segment.end;
+                      const timeLabel = hasTimes ? `${segment.start} - ${segment.end}` : '—';
+                      const note = segment.note ? ` - ${segment.note}` : '';
+                      return (
+                        <li key={idx} className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex-1 text-sm text-slate-600">
+                            <span className="text-base font-semibold text-slate-700">{timeLabel}</span>
+                            {note && <span className="text-sm text-slate-500">{note}</span>}
+                          </div>
+                          <span
+                            className={cls(
+                              CHIP,
+                              meta?.base,
+                              meta?.border,
+                              meta?.text
+                            )}
+                          >
+                            <span className={cls('inline-block h-2 w-2 rounded-full', meta?.dot)} /> {meta?.label || '—'}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <div className="text-sm text-slate-500">
+                    Łącznie: <span className="text-base font-semibold text-slate-700">{minutesToHHmm(planned)}</span>
+                  </div>
+                  {draftDay.note && (
+                    <div className="text-xs text-slate-500">
+                      <span className="font-medium text-slate-600">Notatka:</span> {draftDay.note}
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="text-sm text-slate-500">Brak zakresów czasu.</div>
-              )}
-              {draftDay.note && (
-                <div className="text-xs text-slate-500">
-                  <span className="font-medium text-slate-600">Notatka:</span> {draftDay.note}
-                </div>
               )}
             </div>
           ) : (
