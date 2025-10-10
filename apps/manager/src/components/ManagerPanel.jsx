@@ -24,7 +24,8 @@ import {
   toMinutes,
   minutesToHHmm,
   computeReported,
-  computeDayStatus,
+  computeWorkKindFor,
+  getPlanSpanMins,
   MODE_META,
   TASK_TYPE_COLORS,
   STATUS_STYLES,
@@ -64,6 +65,147 @@ const sanitizePlan = (plan) => {
   const copy = clone || {};
   delete copy.dirty;
   return copy;
+};
+
+const MotionDiv = motion.div;
+
+const formatTimeLabel = (value) => {
+  if (!value) return '—';
+  return value === '24:00' ? '00:00' : value;
+};
+
+const formatShiftSummary = (shift) => {
+  if (!shift) return '—';
+  const windowLabel = `${formatTimeLabel(shift.start)}–${formatTimeLabel(shift.end)}`;
+  const modeLabel = MODE_META[shift.mode || 'OFFICE']?.label || shift.mode || '—';
+  const note = shift.note?.trim() ? ` • notatka: ${shift.note.trim()}` : '';
+  return `${windowLabel} ${modeLabel}${note}`;
+};
+
+const describePlanChanges = (previous = {}, next = {}) => {
+  const messages = [];
+  const prevNote = (previous.note || '').trim();
+  const nextNote = (next.note || '').trim();
+  if (prevNote !== nextNote) {
+    if (!prevNote && nextNote) messages.push(`Dodano notatkę: "${nextNote}"`);
+    else if (prevNote && !nextNote) messages.push(`Usunięto notatkę: "${prevNote}"`);
+    else messages.push(`Zmieniono notatkę: "${prevNote}" → "${nextNote}"`);
+  }
+
+  const prevShifts = previous.shifts || [];
+  const nextShifts = next.shifts || [];
+  const max = Math.max(prevShifts.length, nextShifts.length);
+
+  for (let i = 0; i < max; i += 1) {
+    const prevShift = prevShifts[i];
+    const nextShift = nextShifts[i];
+    const label = `zakres ${i + 1}`;
+
+    if (!prevShift && nextShift) {
+      messages.push(`Dodano ${label}: ${formatShiftSummary(nextShift)}`);
+      continue;
+    }
+    if (prevShift && !nextShift) {
+      messages.push(`Usunięto ${label}: ${formatShiftSummary(prevShift)}`);
+      continue;
+    }
+    if (!prevShift || !nextShift) continue;
+
+    const parts = [];
+    if (prevShift.start !== nextShift.start || prevShift.end !== nextShift.end) {
+      parts.push(
+        `czas ${formatTimeLabel(prevShift.start)}–${formatTimeLabel(prevShift.end)} → ${formatTimeLabel(nextShift.start)}–${formatTimeLabel(nextShift.end)}`
+      );
+    }
+    if ((prevShift.mode || 'OFFICE') !== (nextShift.mode || 'OFFICE')) {
+      const prevMode = MODE_META[prevShift.mode || 'OFFICE']?.label || prevShift.mode || '—';
+      const nextMode = MODE_META[nextShift.mode || 'OFFICE']?.label || nextShift.mode || '—';
+      parts.push(`tryb ${prevMode} → ${nextMode}`);
+    }
+    const prevShiftNote = (prevShift.note || '').trim();
+    const nextShiftNote = (nextShift.note || '').trim();
+    if (prevShiftNote !== nextShiftNote) {
+      if (!prevShiftNote && nextShiftNote) parts.push(`dodano notatkę "${nextShiftNote}"`);
+      else if (prevShiftNote && !nextShiftNote) parts.push(`usunięto notatkę "${prevShiftNote}"`);
+      else parts.push(`notatka "${prevShiftNote}" → "${nextShiftNote}"`);
+    }
+
+    if (parts.length) messages.push(`Zmieniono ${label}: ${parts.join(', ')}`);
+  }
+
+  return messages;
+};
+
+const splitTasksByPlanStart = (items, planSpan, date, shifts) => {
+  if (!Array.isArray(items) || items.length === 0) return [];
+
+  const NIGHT_START = 22 * 60;
+  const NIGHT_END = 6 * 60;
+  const MINUTES_IN_DAY = 24 * 60;
+  const DEFAULT_CORE_START = 8 * 60;
+  const DEFAULT_CORE_END = 16 * 60;
+
+  const boundaries = new Set([NIGHT_END, NIGHT_START, DEFAULT_CORE_START, DEFAULT_CORE_END]);
+  if (planSpan?.start != null) boundaries.add(planSpan.start);
+  if (planSpan?.end != null) boundaries.add(planSpan.end);
+
+  const orderedBoundaries = Array.from(boundaries)
+    .filter((value) => Number.isFinite(value) && value > 0 && value < MINUTES_IN_DAY)
+    .sort((a, b) => a - b);
+
+  const result = [];
+
+  items.forEach((item) => {
+    if (!item?.start || !item?.end) {
+      result.push(item);
+      return;
+    }
+
+    let segments = [{ ...item }];
+    orderedBoundaries.forEach((boundary) => {
+      segments = segments.flatMap((segment) => {
+        const startMinutes = toMinutes(segment.start);
+        const endMinutes = toMinutes(segment.end);
+        if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || startMinutes >= endMinutes) {
+          return [segment];
+        }
+        if (startMinutes < boundary && endMinutes > boundary) {
+          const boundaryLabel = minutesToHHmm(boundary);
+          const baseId = item.id || `task-${boundary}-${startMinutes}`;
+          const head = {
+            ...segment,
+            id: `${baseId}#${boundaryLabel}-a`,
+            end: boundaryLabel
+          };
+          const tail = {
+            ...segment,
+            id: `${baseId}#${boundaryLabel}-b`,
+            start: boundaryLabel
+          };
+          return [head, tail];
+        }
+        return [segment];
+      });
+    });
+
+    segments.forEach((segment, index) => {
+      const startMinutes = toMinutes(segment.start);
+      const endMinutes = toMinutes(segment.end);
+      const baseId = item.id || `task-${index}`;
+      const segmentId = segments.length === 1 ? baseId : `${baseId}#${index}`;
+      if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || startMinutes >= endMinutes) {
+        result.push({ ...segment, id: segmentId });
+        return;
+      }
+      result.push({
+        ...segment,
+        id: segmentId,
+        workKind: computeWorkKindFor(segment, date, shifts)
+      });
+    });
+  });
+
+  return result;
 };
 
 function TimeSelect({ value, onChange, placeholder, disabled }) {
@@ -147,7 +289,7 @@ function Modal({ open, title, children, actions, onClose }) {
   );
 }
 
-function PickerSection({ title, icon: Icon, count, items, selectedId, onSelect, onCreate, onEdit, onDelete }) {
+function PickerSection({ title, icon: IconComponent, count, items, selectedId, onSelect, onCreate, onEdit, onDelete }) {
   const [open, setOpen] = useState(false);
   const [actionsOpenId, setActionsOpenId] = useState(null);
   const ordered = useMemo(() => {
@@ -171,7 +313,7 @@ function PickerSection({ title, icon: Icon, count, items, selectedId, onSelect, 
     <div className="mb-3">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2 text-sm text-slate-500">
-          <Icon className="w-4 h-4" /> {title}
+          <IconComponent className="w-4 h-4" /> {title}
         </div>
         <div className="flex items-center gap-2">
           {typeof count === 'number' && (
@@ -320,7 +462,7 @@ function EmployeeCalendar({ monthStart, selectedDate, setSelectedDate, statusByD
           const raw = statusByDate[key] || 'NONE';
           const status = raw === 'SENT' ? 'PLANNED' : raw;
           const mode = modeByDate[key];
-          const planned = 'bg-sky-50 border-sky-300 text-slate-900';
+          const planned = 'bg-sky-100 border-sky-300 text-slate-900';
           const settled = 'bg-emerald-100 border-emerald-500 text-emerald-900';
           const absence = 'bg-red-100 border-red-500 text-red-900';
           const weekendCls = 'bg-slate-200 border-slate-300 text-slate-700';
@@ -419,12 +561,14 @@ export default function ManagerPanel() {
   const [autoOpen, setAutoOpen] = useState(false);
   const [modalMonth, setModalMonth] = useState(() => `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 2).padStart(2, '0')}`);
 
-  const [reportsOpen, setReportsOpen] = useState(false);
-  const [reportSelectedIds, setReportSelectedIds] = useState([]);
-  const [reportMonth, setReportMonth] = useState(() => `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, '0')}`);
-  const [reportDetailed, setReportDetailed] = useState(false);
-  const [logsConfirmOpen, setLogsConfirmOpen] = useState(false);
-  const [logsClearing, setLogsClearing] = useState(false);
+const [reportsOpen, setReportsOpen] = useState(false);
+const [reportSelectedIds, setReportSelectedIds] = useState([]);
+const [reportMonth, setReportMonth] = useState(() => `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, '0')}`);
+const [reportDetailed, setReportDetailed] = useState(false);
+const [logsConfirmOpen, setLogsConfirmOpen] = useState(false);
+const [logsClearing, setLogsClearing] = useState(false);
+
+const selectedEmployeeId = selectedEmployee?.id;
 
   useEffect(() => {
     let active = true;
@@ -550,14 +694,17 @@ export default function ManagerPanel() {
   }, [selectedEmployee?.id, dKey]);
 
   const shifts = draftDay.shifts || [];
+  const submissionShifts = sentDay?.shifts?.length ? sentDay.shifts : shifts;
   const plannedMinutes = shifts.reduce((acc, shift) => acc + (toMinutes(shift.end) - toMinutes(shift.start)), 0);
   const planSpanLabel = useMemo(() => {
     const starts = shifts.map((shift) => shift.start).filter(Boolean).sort();
     const ends = shifts.map((shift) => shift.end).filter(Boolean).sort();
     const start = starts[0];
     const end = ends[ends.length - 1];
-    return start && end ? `${start}–${end}` : '—';
+    return start && end ? `${formatTimeLabel(start)}–${formatTimeLabel(end)}` : '—';
   }, [shifts]);
+  const planSpan = useMemo(() => getPlanSpanMins(shifts), [shifts]);
+  const submissionSpan = useMemo(() => getPlanSpanMins(submissionShifts), [submissionShifts]);
   const dayStatus = draftDay.dirty ? 'EDITED' : sentDay ? 'SENT' : shifts.length ? 'SAVED' : 'NONE';
 
   const addSegment = () =>
@@ -599,30 +746,25 @@ export default function ManagerPanel() {
       return { ...prev, shifts: next, dirty: true };
     });
 
-  const setNote = (value) =>
-    setDraftDay((prev) => ({
-      ...(prev || { shifts: [] }),
-      note: value,
-      dirty: true
-    }));
-
   const summarizePlan = (data) => {
     const parts = (data.shifts || []).map((shift) => {
       const label = MODE_META[shift.mode || 'OFFICE']?.label;
-      return shift.start && shift.end ? `${shift.start}–${shift.end} ${label}` : label;
+      return shift.start && shift.end
+        ? `${formatTimeLabel(shift.start)}–${formatTimeLabel(shift.end)} ${label}`
+        : label;
     });
     return parts.length ? parts.join(' · ') : '—';
   };
 
   const sendPlan = async () => {
-    if (!selectedEmployee) return;
+    if (!selectedEmployee || !selectedEmployeeId) return;
     const now = new Date().toISOString();
-    const planId = sentDay?.id || planIdFor(selectedEmployee.id, dKey);
+    const planId = sentDay?.id || planIdFor(selectedEmployeeId, dKey);
     const base = sentDay
       ? sanitizePlan(sentDay)
       : {
           id: planId,
-          employeeId: selectedEmployee.id,
+          employeeId: selectedEmployeeId,
           date: dKey,
           shifts: [],
           note: '',
@@ -630,19 +772,27 @@ export default function ManagerPanel() {
           sentAt: null,
           logs: []
         };
-    const logs = [
-      ...(base.logs || []),
-      { type: 'SENT', at: now, text: summarizePlan(draftDay) }
-    ];
-    const payload = {
+
+    const nextPlanState = {
       ...base,
       id: planId,
-      employeeId: selectedEmployee.id,
+      employeeId: selectedEmployeeId,
       date: dKey,
       shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
       note: draftDay.note || '',
       sent: true,
-      sentAt: now,
+      sentAt: now
+    };
+
+    const changeMessages = describePlanChanges(base, nextPlanState);
+    const logs = [...(base.logs || [])];
+    changeMessages.forEach((message) => {
+      logs.push({ type: 'MAN_PLAN_EDIT', at: now, text: `Kierownik: ${message}` });
+    });
+    logs.push({ type: 'SENT', at: now, text: summarizePlan(draftDay) });
+
+    const payload = {
+      ...nextPlanState,
       logs
     };
     await savePlan(payload);
@@ -679,6 +829,22 @@ export default function ManagerPanel() {
   }, [plansByDate]);
 
   const sentSubmission = sentDay?.submission;
+  const submissionItemsForDisplay = useMemo(
+    () =>
+      splitTasksByPlanStart(
+        sentSubmission?.items || [],
+        submissionSpan,
+        selectedDate,
+        submissionShifts
+      ),
+    [
+      sentSubmission?.items,
+      submissionSpan?.start,
+      submissionSpan?.end,
+      selectedDate,
+      submissionShifts
+    ]
+  );
   const reportedMinutesCalc = (sentSubmission?.items || []).filter((item) => item.start && item.end).reduce((acc, item) => acc + (toMinutes(item.end) - toMinutes(item.start)), 0);
   const allDoneCalc = (sentSubmission?.items || []).length > 0 && (sentSubmission?.items || []).every((item) =>
     String(item.status || '').toLowerCase().includes('zako')
@@ -711,17 +877,6 @@ export default function ManagerPanel() {
     const list = await fetchManagers();
     setManagers(list);
     return list;
-  };
-
-  const refreshPlans = async (employeeId) => {
-    const [planList, logs] = await Promise.all([fetchPlansForEmployee(employeeId), fetchMonthlyLogs(employeeId)]);
-    const map = planList.reduce((acc, plan) => {
-      acc[plan.date] = plan;
-      return acc;
-    }, {});
-    setPlansByDate(map);
-    setMonthlyLogs(logs);
-    return { plans: planList, logs };
   };
 
   const handleDeleteEmployee = async (employee) => {
@@ -771,6 +926,10 @@ export default function ManagerPanel() {
     const dim = new Date(year, monthIndex + 1, 0).getDate();
     const nowIso = new Date().toISOString();
     const entries = [];
+    const monthLabel = new Date(year, monthIndex, 1).toLocaleDateString('pl-PL', {
+      month: 'long',
+      year: 'numeric'
+    });
     const isHalf = (selectedEmployee.employmentType || '') === '1/2 etatu';
     for (let day = 1; day <= dim; day++) {
       const date = new Date(year, monthIndex, day);
@@ -781,16 +940,16 @@ export default function ManagerPanel() {
       let logText = '';
       if (!isHalf) {
         shiftsArr = [{ mode: 'OFFICE', start: '08:00', end: '16:00' }];
-        logText = 'Auto: 08:00–16:00 Biuro';
+        logText = `Auto (${monthLabel}): 08:00–16:00 Biuro`;
       } else if (weekday === 2 || weekday === 4) {
         shiftsArr = [{ mode: 'OFFICE', start: '08:00', end: '16:00' }];
-        logText = 'Auto: 08:00–16:00 Biuro';
+        logText = `Auto (${monthLabel}): 08:00–16:00 Biuro`;
       } else if (weekday === 5) {
         shiftsArr = [{ mode: 'OFFICE', start: '08:00', end: '12:00' }];
-        logText = 'Auto: 08:00–12:00 Biuro';
+        logText = `Auto (${monthLabel}): 08:00–12:00 Biuro`;
       } else {
         shiftsArr = [{ mode: 'ABSENCE', start: '', end: '' }];
-        logText = 'Auto: Nieobecność';
+        logText = `Auto (${monthLabel}): Nieobecność`;
       }
       const existing = plansByDate[key];
       const base = existing
@@ -822,9 +981,7 @@ export default function ManagerPanel() {
       ym: ymKey,
       type: 'AUTO_MONTH',
       at: nowIso,
-      text: `Kierownik: Zaplanowano miesiąc ${new Date(year, monthIndex, 1).toLocaleDateString('pl-PL', {
-        month: 'long'
-      })}`
+      text: `Kierownik: Zaplanowano miesiąc ${monthLabel}`
     };
     await createMonthlyLog(logEntry);
     setMonthlyLogs((prev) => [...prev, logEntry]);
@@ -998,7 +1155,7 @@ export default function ManagerPanel() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto max-w-7xl p-6 space-y-6 text-slate-800">
+    <MotionDiv initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto max-w-7xl p-6 space-y-6 text-slate-800">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-3">
           <img src={Logo} alt="IBCS Planner logo" className="w-14 h-14 object-cover" />
@@ -1253,20 +1410,37 @@ export default function ManagerPanel() {
                   <ul className="space-y-2 text-sm">
                     {logsList.map((log, idx) => {
                       const type = log.type || '';
-                      const Icon = type === 'EMP_PLAN_MOD' ? Pencil : type === 'EMP_SUBMIT' ? Send : CalIcon;
-                      const who = type === 'SENT' || type === 'AUTO_MONTH' ? 'Kierownik' : 'Pracownik';
-                      const action =
-                        type === 'SENT'
-                          ? 'Wysłano plan'
+                      const IconComponent =
+                        type === 'SENT' || type === 'EMP_SUBMIT'
+                          ? Send
                           : type === 'AUTO_MONTH'
-                          ? 'Planowanie'
-                          : type === 'EMP_PLAN_MOD'
-                          ? 'Zmieniono plan'
-                          : 'Wysłano zadania';
+                          ? CalIcon
+                          : type === 'EMP_TASK_EDIT'
+                          ? Settings
+                          : Pencil;
+                      const who = type.startsWith('EMP_') ? 'Pracownik' : 'Kierownik';
+                      const action = (() => {
+                        switch (type) {
+                          case 'SENT':
+                            return 'Wysłano plan';
+                          case 'AUTO_MONTH':
+                            return 'Planowanie';
+                          case 'EMP_PLAN_MOD':
+                          case 'EMP_PLAN_EDIT':
+                          case 'MAN_PLAN_EDIT':
+                            return 'Aktualizacja planu';
+                          case 'EMP_TASK_EDIT':
+                            return 'Zmiany w zadaniach';
+                          case 'EMP_SUBMIT':
+                            return 'Wysłano zadania';
+                          default:
+                            return 'Aktualizacja';
+                        }
+                      })();
                       const cleaned = (log.text || '').replace(/^Pracownik: /, '').replace(/^Kierownik: /, '');
                       return (
                         <li key={`${log.at}-${idx}`} className="flex items-start gap-2">
-                          <Icon className="w-4 h-4 text-slate-700 mt-0.5" />
+                          <IconComponent className="w-4 h-4 text-slate-700 mt-0.5" />
                           <div>
                             <div className="text-slate-700">
                               {who}: {action}{' '}
@@ -1330,13 +1504,6 @@ export default function ManagerPanel() {
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
-                <button
-                  onClick={() => setCalendarOpen(false)}
-                  className={cls(BTN, 'px-2 py-1')}
-                  aria-label="Zwiń kalendarz"
-                >
-                  <CalIcon className="w-4 h-4" />
-                </button>
               </div>
             </div>
             <p className="text-sm text-slate-500 mb-3">{plMonth(monthCursor)}</p>
@@ -1389,20 +1556,20 @@ export default function ManagerPanel() {
                     <th className="p-2 text-left">Dotyczy</th>
                     <th className="p-2 text-left">Start</th>
                     <th className="p-2 text-left">Koniec</th>
-                    <th className="p-2 text-left">Rodzaj</th>
+                    <th className="p-2 text-left w-24">Rodzaj</th>
                     <th className="p-2 text-left">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sentSubmission.items.map((item) => {
+                  {submissionItemsForDisplay.map((item) => {
                     const colors = TASK_TYPE_COLORS[item.type] || TASK_TYPE_COLORS.Biuro;
                     const workKind = item.workKind || 'Zwykłe';
                     const workStyle =
                       workKind === 'Zwykłe'
                         ? 'bg-slate-50 border-slate-300 text-slate-700'
-                        : workKind === 'Nadgodziny 50%'
+                        : workKind === 'H + 50%'
                         ? 'bg-amber-50 border-amber-300 text-amber-800'
-                        : workKind === 'Nadgodziny 100%'
+                        : workKind === 'H + 100%'
                         ? 'bg-rose-50 border-rose-300 text-rose-800'
                         : 'bg-indigo-50 border-indigo-300 text-indigo-800';
                     const statusStyle = STATUS_STYLES[item.status || 'Planowane'];
@@ -1423,10 +1590,10 @@ export default function ManagerPanel() {
                         <td className="p-2">{item.subject || '—'}</td>
                         <td className="p-2">{item.client || '—'}</td>
                         <td className="p-2">{item.project || '—'}</td>
-                        <td className="p-2">{item.start || '—'}</td>
-                        <td className="p-2">{item.end || '—'}</td>
-                        <td className="p-2">
-                          <span className={cls('inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs', workStyle)}>
+                        <td className="p-2">{formatTimeLabel(item.start)}</td>
+                        <td className="p-2">{formatTimeLabel(item.end)}</td>
+                        <td className="p-2 w-24">
+                          <span className={cls('inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs whitespace-nowrap', workStyle)}>
                             {workKind}
                           </span>
                         </td>
@@ -1798,6 +1965,6 @@ export default function ManagerPanel() {
           </label>
         </div>
       </Modal>
-    </motion.div>
+    </MotionDiv>
   );
 }

@@ -46,6 +46,12 @@ const BTN =
 const CARD = 'rounded-2xl border-2 border-slate-300 bg-white shadow-sm p-4';
 const CHIP = 'inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-sm';
 const WEEK_DAYS = ['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'];
+const ABSENCE_TASK_TYPES = ['Urlop', 'L4', 'Nieobecność'];
+
+const formatTimeLabel = (value) => {
+  if (!value) return '—';
+  return value === '24:00' ? '00:00' : value;
+};
 
 const sanitizePlan = (plan) => {
   if (!plan) return plan;
@@ -55,6 +61,118 @@ const sanitizePlan = (plan) => {
   const copy = clone || {};
   delete copy.dirty;
   return copy;
+};
+
+const formatShiftSummary = (shift) => {
+  if (!shift) return '—';
+  const windowLabel = `${formatTimeLabel(shift.start)}–${formatTimeLabel(shift.end)}`;
+  const modeLabel = MODE_META[shift.mode || 'OFFICE']?.label || shift.mode || '—';
+  const note = shift.note?.trim() ? ` • notatka: ${shift.note.trim()}` : '';
+  return `${windowLabel} ${modeLabel}${note}`;
+};
+
+const describePlanChanges = (previous = {}, next = {}) => {
+  const messages = [];
+  const prevNote = (previous.note || '').trim();
+  const nextNote = (next.note || '').trim();
+  if (prevNote !== nextNote) {
+    if (!prevNote && nextNote) messages.push(`Dodano notatkę: "${nextNote}"`);
+    else if (prevNote && !nextNote) messages.push(`Usunięto notatkę: "${prevNote}"`);
+    else messages.push(`Zmieniono notatkę: "${prevNote}" → "${nextNote}"`);
+  }
+
+  const prevShifts = previous.shifts || [];
+  const nextShifts = next.shifts || [];
+  const max = Math.max(prevShifts.length, nextShifts.length);
+
+  for (let i = 0; i < max; i += 1) {
+    const prevShift = prevShifts[i];
+    const nextShift = nextShifts[i];
+    const label = `zakres ${i + 1}`;
+
+    if (!prevShift && nextShift) {
+      messages.push(`Dodano ${label}: ${formatShiftSummary(nextShift)}`);
+      continue;
+    }
+    if (prevShift && !nextShift) {
+      messages.push(`Usunięto ${label}: ${formatShiftSummary(prevShift)}`);
+      continue;
+    }
+    if (!prevShift || !nextShift) continue;
+
+    const parts = [];
+    if (prevShift.start !== nextShift.start || prevShift.end !== nextShift.end) {
+      parts.push(
+        `czas ${formatTimeLabel(prevShift.start)}–${formatTimeLabel(prevShift.end)} → ${formatTimeLabel(nextShift.start)}–${formatTimeLabel(nextShift.end)}`
+      );
+    }
+    if ((prevShift.mode || 'OFFICE') !== (nextShift.mode || 'OFFICE')) {
+      const prevMode = MODE_META[prevShift.mode || 'OFFICE']?.label || prevShift.mode || '—';
+      const nextMode = MODE_META[nextShift.mode || 'OFFICE']?.label || nextShift.mode || '—';
+      parts.push(`tryb ${prevMode} → ${nextMode}`);
+    }
+    const prevNoteShift = (prevShift.note || '').trim();
+    const nextNoteShift = (nextShift.note || '').trim();
+    if (prevNoteShift !== nextNoteShift) {
+      if (!prevNoteShift && nextNoteShift) parts.push(`dodano notatkę "${nextNoteShift}"`);
+      else if (prevNoteShift && !nextNoteShift) parts.push(`usunięto notatkę "${prevNoteShift}"`);
+      else parts.push(`notatka "${prevNoteShift}" → "${nextNoteShift}"`);
+    }
+
+    if (parts.length) messages.push(`Zmieniono ${label}: ${parts.join(', ')}`);
+  }
+
+  return messages;
+};
+
+const describeTaskLabel = (task) => {
+  if (!task) return '—';
+  const windowLabel = `${formatTimeLabel(task.start)}–${formatTimeLabel(task.end)}`;
+  const subject = (task.subject || '').trim();
+  const project = (task.project || '').trim();
+  const client = (task.client || '').trim();
+  const base = subject || project || task.type || 'Zadanie';
+  const clientPart = client ? ` (Klient: ${client})` : '';
+  return `[${windowLabel}] ${base}${clientPart}`;
+};
+
+const describeTaskChanges = (previousItems = [], nextItems = []) => {
+  const messages = [];
+  const prevMap = new Map(previousItems.map((item) => [item.id, item]));
+  const nextMap = new Map(nextItems.map((item) => [item.id, item]));
+
+  nextItems.forEach((item) => {
+    const prev = prevMap.get(item.id);
+    if (!prev) {
+      messages.push(`Dodano zadanie ${describeTaskLabel(item)}`);
+      return;
+    }
+    const parts = [];
+    if (prev.start !== item.start || prev.end !== item.end) {
+      parts.push(
+        `czas ${formatTimeLabel(prev.start)}–${formatTimeLabel(prev.end)} → ${formatTimeLabel(item.start)}–${formatTimeLabel(item.end)}`
+      );
+    }
+    if ((prev.type || '') !== (item.type || '')) parts.push(`tryb ${prev.type || '—'} → ${item.type || '—'}`);
+    if ((prev.subject || '').trim() !== (item.subject || '').trim()) {
+      parts.push(`temat "${prev.subject?.trim() || '—'}" → "${item.subject?.trim() || '—'}"`);
+    }
+    if ((prev.client || '').trim() !== (item.client || '').trim()) {
+      parts.push(`klient ${prev.client?.trim() || '—'} → ${item.client?.trim() || '—'}`);
+    }
+    if ((prev.project || '').trim() !== (item.project || '').trim()) {
+      parts.push(`dotyczy ${prev.project?.trim() || '—'} → ${item.project?.trim() || '—'}`);
+    }
+    if ((prev.status || '') !== (item.status || '')) parts.push(`status ${prev.status || '—'} → ${item.status || '—'}`);
+    if ((prev.workKind || '') !== (item.workKind || '')) parts.push(`rodzaj ${prev.workKind || '—'} → ${item.workKind || '—'}`);
+    if (parts.length) messages.push(`Zmieniono zadanie ${describeTaskLabel(item)}: ${parts.join(', ')}`);
+  });
+
+  previousItems.forEach((item) => {
+    if (!nextMap.has(item.id)) messages.push(`Usunięto zadanie ${describeTaskLabel(item)}`);
+  });
+
+  return messages;
 };
 
 const planIdFor = (employeeId, dateKey) => `${employeeId}_${dateKey}`;
@@ -273,7 +391,8 @@ const TaskRow = memo(function TaskRow({
   computeWorkKind
 }) {
   const menuOpen = activeTaskId === task.id;
-  const workKind = computeWorkKind(task);
+  const isAbsenceType = ABSENCE_TASK_TYPES.includes(task.type);
+  const workKind = isAbsenceType ? 'Zwykłe' : computeWorkKind(task);
   const actionRef = useCallback(
     (node) => registerAnchor(task.id, node),
     [registerAnchor, task.id]
@@ -290,7 +409,7 @@ const TaskRow = memo(function TaskRow({
           onChange={(e) => onFieldChange(task.id, { subject: e.target.value })}
           className="w-full rounded-lg border-2 border-slate-300 px-2 py-1"
           placeholder="np. Raport"
-          disabled={task.locked}
+          disabled={task.locked || isAbsenceType}
         />
       </td>
       <td className="p-2">
@@ -299,7 +418,7 @@ const TaskRow = memo(function TaskRow({
           onChange={(e) => onFieldChange(task.id, { client: e.target.value })}
           className="w-full rounded-lg border-2 border-slate-300 px-2 py-1"
           placeholder="np. Klient"
-          disabled={task.locked}
+          disabled={task.locked || isAbsenceType}
         />
       </td>
       <td className="p-2">
@@ -308,20 +427,24 @@ const TaskRow = memo(function TaskRow({
           onChange={(e) => onFieldChange(task.id, { project: e.target.value })}
           className="w-full rounded-lg border-2 border-slate-300 px-2 py-1"
           placeholder="np. CR-10001 / zasób"
-          disabled={task.locked}
+          disabled={task.locked || isAbsenceType}
         />
       </td>
       <td className="p-2">
-        <TimeSelect value={task.start} onChange={(value) => onFieldChange(task.id, { start: value })} disabled={task.locked} />
+        <TimeSelect value={task.start} onChange={(value) => onFieldChange(task.id, { start: value })} disabled={task.locked || isAbsenceType} />
       </td>
       <td className="p-2">
-        <TimeSelect value={task.end} onChange={(value) => onFieldChange(task.id, { end: value })} disabled={task.locked} />
+        <TimeSelect value={task.end} onChange={(value) => onFieldChange(task.id, { end: value })} disabled={task.locked || isAbsenceType} />
       </td>
       <td className="p-2">
         <span className={`${CHIP} ${WORKKIND_STYLES[workKind]}`}>{workKind}</span>
       </td>
       <td className="p-2">
-        <StatusChooser value={task.status || 'Planowane'} onChange={(value) => onFieldChange(task.id, { status: value })} disabled={task.locked} />
+        <StatusChooser
+          value={task.status || 'Planowane'}
+          onChange={(value) => onFieldChange(task.id, { status: value })}
+          disabled={task.locked || isAbsenceType}
+        />
       </td>
       <td className="relative p-2 text-right">
         <button
@@ -377,7 +500,7 @@ const TaskRow = memo(function TaskRow({
   );
 });
 
-function PickerSection({ title, icon: Icon, count, items, selectedId, onSelect }) {
+function PickerSection({ title, icon: IconComponent, count, items, selectedId, onSelect }) {
   const [open, setOpen] = useState(false);
   const ordered = useMemo(() => {
     const selected = items.find((i) => i.id === selectedId);
@@ -389,7 +512,7 @@ function PickerSection({ title, icon: Icon, count, items, selectedId, onSelect }
     <div className="mb-3">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2 text-sm text-slate-500">
-          <Icon className="w-4 h-4" /> {title}
+          <IconComponent className="w-4 h-4" /> {title}
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-400">{count}</span>
@@ -470,7 +593,7 @@ function EmployeeCalendar({ monthStart, selectedDate, setSelectedDate, statusByD
           const raw = statusByDate[key] || 'NONE';
           const status = raw === 'SENT' ? 'PLANNED' : raw;
           const mode = modeByDate[key];
-          const planned = 'bg-sky-50 border-sky-300 text-slate-900';
+          const planned = 'bg-sky-100 border-sky-300 text-slate-900';
           const settled = 'bg-emerald-100 border-emerald-500 text-emerald-900';
           const absence = 'bg-red-100 border-red-500 text-red-900';
           const weekendCls = 'bg-slate-200 border-slate-300 text-slate-700';
@@ -715,7 +838,7 @@ export default function EmployeePanel() {
   const spanStart = shifts.map((s) => s.start).filter(Boolean).sort()[0];
   const spanEnd = shifts.map((s) => s.end).filter(Boolean).sort().slice(-1)[0];
   const dayStatus = draftDay.dirty ? 'EDITED' : sentDay ? 'SENT' : shifts.length ? 'SAVED' : 'NONE';
-  const wkOf = (task) => computeWorkKindFor(task, selectedDate, shifts);
+  const wkOf = (task) => (ABSENCE_TASK_TYPES.includes(task.type) ? 'Zwykłe' : computeWorkKindFor(task, selectedDate, shifts));
 
   const addSegment = () =>
     setDraftDay((prev) => {
@@ -759,7 +882,9 @@ export default function EmployeePanel() {
   const summarizePlan = (data) => {
     const parts = (data.shifts || []).map((shift) => {
       const label = MODE_META[shift.mode || 'OFFICE']?.label;
-      return shift.start && shift.end ? `${shift.start}–${shift.end} ${label}` : label;
+      return shift.start && shift.end
+        ? `${formatTimeLabel(shift.start)}–${formatTimeLabel(shift.end)} ${label}`
+        : label;
     });
     return parts.length ? parts.join(' · ') : '—';
   };
@@ -780,11 +905,7 @@ export default function EmployeePanel() {
           sentAt: null,
           logs: []
         };
-    const logs = [
-      ...(base.logs || []),
-      { type: 'EMP_PLAN_MOD', at: now, text: `Pracownik: ${summarizePlan(draftDay)}` }
-    ];
-    const payload = {
+    const nextPlanState = {
       ...base,
       id: planId,
       employeeId: selectedEmployee.id,
@@ -792,7 +913,18 @@ export default function EmployeePanel() {
       shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
       note: draftDay.note || '',
       sent: true,
-      sentAt: now,
+      sentAt: now
+    };
+
+    const changeMessages = describePlanChanges(base, nextPlanState);
+    const logs = [...(base.logs || [])];
+    changeMessages.forEach((message) => {
+      logs.push({ type: 'EMP_PLAN_EDIT', at: now, text: `Pracownik: ${message}` });
+    });
+    logs.push({ type: 'EMP_PLAN_MOD', at: now, text: `Pracownik: ${summarizePlan(draftDay)}` });
+
+    const payload = {
+      ...nextPlanState,
       logs
     };
     await savePlan(payload);
@@ -963,6 +1095,42 @@ Status: ${task.status || '-'}`;
         return;
       }
 
+      const nextType = patch.type ?? targetTask.type;
+      if (ABSENCE_TASK_TYPES.includes(nextType)) {
+        setSubDraft((prev) => {
+          const items = prev.items || [];
+          const index = items.findIndex((item) => item.id === id);
+          if (index === -1) return prev;
+
+          const enforced = {
+            ...(items[index] || {}),
+            ...patch,
+            type: nextType,
+            start: '08:00',
+            end: '16:00',
+            subject: '',
+            client: '',
+            project: '',
+            status: 'Planowane',
+            workKind: 'Zwykłe'
+          };
+
+          const updated = items.map((item, i) => (i === index ? enforced : item));
+          return { ...prev, items: updated };
+        });
+        return;
+      }
+
+      if ('status' in patch && patch.status === 'Zakończone') {
+        const preview = { ...targetTask, ...patch };
+        if (!preview.start || !preview.end) {
+          if (typeof window !== 'undefined') {
+            window.alert('Aby oznaczyć zadanie jako zakończone, uzupełnij godziny startu i końca.');
+          }
+          return;
+        }
+      }
+
       const timeFieldsChanged = 'start' in patch || 'end' in patch;
       if (!timeFieldsChanged) {
         setTask(id, patch);
@@ -971,9 +1139,88 @@ Status: ${task.status || '-'}`;
 
       const nextTask = { ...targetTask, ...patch };
       const nightBoundaryMinutes = 22 * 60;
+      const nightEarlyBoundaryMinutes = 6 * 60;
       const planEndMinutesSpan = spanEnd ? toMinutes(spanEnd) : null;
+      const planStartMinutesSpan = spanStart ? toMinutes(spanStart) : null;
       const startMinutes = toMinutes(nextTask.start);
       const endMinutes = toMinutes(nextTask.end);
+      const crossesPlanStart =
+        Number.isFinite(planStartMinutesSpan) &&
+        Number.isFinite(startMinutes) &&
+        Number.isFinite(endMinutes) &&
+        startMinutes < endMinutes &&
+        startMinutes < planStartMinutesSpan;
+
+      if (crossesPlanStart) {
+        const boundaries = [];
+        if (startMinutes < nightEarlyBoundaryMinutes && endMinutes > nightEarlyBoundaryMinutes) {
+          boundaries.push(nightEarlyBoundaryMinutes);
+        }
+        if (startMinutes < planStartMinutesSpan && endMinutes > planStartMinutesSpan) {
+          boundaries.push(planStartMinutesSpan);
+        }
+
+        if (boundaries.length) {
+          const sortedBoundaries = boundaries.sort((a, b) => a - b);
+          const baseSegments = sortedBoundaries.reduce(
+            (segments, boundary) =>
+              segments.flatMap((segment) => {
+                const segStart = toMinutes(segment.start);
+                const segEnd = toMinutes(segment.end);
+                if (!Number.isFinite(segStart) || !Number.isFinite(segEnd) || segStart >= segEnd) {
+                  return [segment];
+                }
+                if (segStart < boundary && segEnd > boundary) {
+                  const boundaryLabel = minutesToHHmm(boundary);
+                  const head = { ...segment, end: boundaryLabel };
+                  const tail = { ...segment, start: boundaryLabel };
+                  return [head, tail];
+                }
+                return [segment];
+              }),
+            [{ ...nextTask }]
+          );
+
+          let shouldSplitPlanStart = true;
+          if (typeof window !== 'undefined') {
+            const previewLines = baseSegments.map((segment) => {
+              const startLabel = segment.start || '—';
+              const endLabel = segment.end || '—';
+              const kind = computeWorkKindFor(segment, selectedDate, shifts);
+              return `• ${startLabel}–${endLabel} (${kind})`;
+            });
+            const message = [
+              `Zadanie ${nextTask.start || '—'}–${nextTask.end || '—'} zaczyna się przed planem dnia (${spanStart || '—'}).`,
+              'Podzielić je na:',
+              ...previewLines
+            ].join('\n');
+            shouldSplitPlanStart = window.confirm(message);
+          }
+
+          if (shouldSplitPlanStart) {
+            const timestamp = Date.now();
+            setSubDraft((prev) => {
+              const items = prev.items || [];
+              const index = items.findIndex((item) => item.id === id);
+              if (index === -1) return prev;
+
+              const updated = [...items];
+              updated.splice(index, 1);
+
+              const segmentsWithIds = baseSegments.map((segment, segIndex) => ({
+                ...segment,
+                id: segIndex === baseSegments.length - 1 ? id : `t${timestamp + segIndex}`,
+                locked: false
+              }));
+
+              updated.splice(index, 0, ...segmentsWithIds);
+              return { ...prev, items: updated };
+            });
+            return;
+          }
+        }
+      }
+
       const crossesOvertime =
         Number.isFinite(planEndMinutesSpan) &&
         Number.isFinite(startMinutes) &&
@@ -1204,11 +1451,7 @@ Status: ${task.status || '-'}`;
       reportedMinutes: reported,
       dayStatus: dayState
     };
-    const logs = [
-      ...(base.logs || []),
-      { type: 'EMP_SUBMIT', at: now, text: `Pracownik: przesłał ${items.length || 0} zadań` }
-    ];
-    const payload = {
+    const nextPlanState = {
       ...base,
       id: planId,
       employeeId: selectedEmployee.id,
@@ -1217,7 +1460,23 @@ Status: ${task.status || '-'}`;
       note: draftDay.note || '',
       sent: base.sent || false,
       sentAt: base.sentAt || null,
-      submission,
+      submission
+    };
+
+    const planMessages = describePlanChanges(base, nextPlanState);
+    const taskMessages = describeTaskChanges(base.submission?.items || [], items);
+
+    const logs = [...(base.logs || [])];
+    planMessages.forEach((message) => {
+      logs.push({ type: 'EMP_PLAN_EDIT', at: now, text: `Pracownik: ${message}` });
+    });
+    taskMessages.forEach((message) => {
+      logs.push({ type: 'EMP_TASK_EDIT', at: now, text: `Pracownik: ${message}` });
+    });
+    logs.push({ type: 'EMP_SUBMIT', at: now, text: `Pracownik: przesłał ${items.length || 0} zadań` });
+
+    const payload = {
+      ...nextPlanState,
       logs
     };
     await savePlan(payload);
@@ -1490,17 +1749,36 @@ Status: ${task.status || '-'}`;
                   <ul className="space-y-2 text-sm">
                     {logsList.map((log, idx) => {
                       const type = log.type || '';
-                      const Icon = type === 'EMP_PLAN_MOD' ? Pencil : type === 'EMP_SUBMIT' ? Send : CalIcon;
+                      const IconComponent =
+                        type === 'EMP_SUBMIT' || type === 'SENT'
+                          ? Send
+                          : type === 'EMP_TASK_EDIT'
+                          ? Settings
+                          : type === 'AUTO_MONTH'
+                          ? CalIcon
+                          : Pencil;
                       const who = type.startsWith('EMP_') ? 'Pracownik' : 'Kierownik';
-                      const action =
-                        type === 'EMP_PLAN_MOD'
-                          ? 'Zmiana planu'
-                          : type === 'EMP_SUBMIT'
-                          ? 'Wysłano zadania'
-                          : 'Wysłano plan';
+                      const action = (() => {
+                        switch (type) {
+                          case 'EMP_PLAN_EDIT':
+                          case 'MAN_PLAN_EDIT':
+                          case 'EMP_PLAN_MOD':
+                            return 'Aktualizacja planu';
+                          case 'EMP_TASK_EDIT':
+                            return 'Zmiany w zadaniach';
+                          case 'EMP_SUBMIT':
+                            return 'Wysłano zadania';
+                          case 'SENT':
+                            return 'Wysłano plan';
+                          case 'AUTO_MONTH':
+                            return 'Planowanie';
+                          default:
+                            return 'Aktualizacja';
+                        }
+                      })();
                       return (
                         <li key={`${log.at}-${idx}`} className="flex items-start gap-2">
-                          <Icon className="w-4 h-4 text-slate-700 mt-0.5" />
+                          <IconComponent className="w-4 h-4 text-slate-700 mt-0.5" />
                           <div>
                             <div className="text-slate-700">
                               {who}: {action}{' '}
@@ -1562,13 +1840,6 @@ Status: ${task.status || '-'}`;
                   aria-label="Następny miesiąc"
                 >
                   <ChevronRight className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setCalendarOpen(false)}
-                  className={cls(BTN, 'px-2 py-1')}
-                  aria-label="Zwiń kalendarz"
-                >
-                  <CalIcon className="w-4 h-4" />
                 </button>
               </div>
             </div>
