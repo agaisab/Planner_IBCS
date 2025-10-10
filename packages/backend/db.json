@@ -149,18 +149,7 @@
       "employeeId": "e1760090733222",
       "date": "2025-10-10",
       "note": "",
-      "logs": [
-        {
-          "type": "EMP_TASK_EDIT",
-          "at": "2025-10-10T11:01:39.458Z",
-          "text": "Pracownik: Dodano zadanie [08:00–16:00] sss (Klient: sss)"
-        },
-        {
-          "type": "EMP_SUBMIT",
-          "at": "2025-10-10T11:01:39.458Z",
-          "text": "Pracownik: przesłał 1 zadań"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -228,34 +217,55 @@
       "employeeId": "e1760090733222",
       "date": "2025-10-15",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-10T11:26:56.842Z",
+          "text": "Pracownik: Zmieniono zakres 1: dodano notatkę \"dasda\""
+        },
+        {
+          "type": "EMP_PLAN_MOD",
+          "at": "2025-10-10T11:26:56.842Z",
+          "text": "Pracownik: 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-10T11:27:44.068Z",
+          "text": "Pracownik: Zmieniono zakres 1: czas 08:00–16:00 → 08:00–15:00"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-10T11:27:44.068Z",
+          "text": "Pracownik: Dodano zakres 2: 15:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_MOD",
+          "at": "2025-10-10T11:27:44.068Z",
+          "text": "Pracownik: 08:00–15:00 Biuro · 15:00–16:00 Biuro"
+        }
+      ],
       "shifts": [
         {
           "mode": "OFFICE",
           "start": "08:00",
+          "end": "15:00",
+          "note": "dasda"
+        },
+        {
+          "mode": "OFFICE",
+          "start": "15:00",
           "end": "16:00"
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-10T10:05:46.979Z"
+      "sentAt": "2025-10-10T11:27:44.068Z"
     },
     {
       "id": "e1760090733222_2025-10-16",
       "employeeId": "e1760090733222",
       "date": "2025-10-16",
       "note": "",
-      "logs": [
-        {
-          "type": "EMP_SUBMIT",
-          "at": "2025-10-10T11:16:06.381Z",
-          "text": "Pracownik: przesłał 0 zadań"
-        },
-        {
-          "type": "EMP_SUBMIT",
-          "at": "2025-10-10T11:16:07.494Z",
-          "text": "Pracownik: przesłał 0 zadań"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "OFFICE",

@@ -477,7 +477,7 @@ const TaskRow = memo(function TaskRow({
                 disabled={!!task.locked}
                 className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
               >
-                <Save className="w-4 h-4" /> Zapisz
+                <Save className="w-4 h-4" /> {task.locked ? 'Zapisane' : 'Zapisz'}
               </button>
               <button
                 data-task-actions-menu
@@ -496,7 +496,7 @@ const TaskRow = memo(function TaskRow({
               </button>
               <button
                 data-task-actions-menu
-                onClick={() => onDelete(task.id)}
+                onClick={() => onDelete(task)}
                 className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-rose-700 hover:bg-rose-50"
               >
                 <Trash2 className="w-4 h-4" /> Usuń
@@ -1583,8 +1583,28 @@ Status: ${task.status || '-'}`;
   );
 
   const handleTaskDelete = useCallback(
-    (id) => {
-      delTask(id);
+    (task) => {
+      if (!task) return;
+      if (task.locked) {
+        if (typeof window !== 'undefined') {
+          window.alert('Aby usunąć zadanie, najpierw je odblokuj.');
+        }
+        closeTaskActions();
+        return;
+      }
+      const hasDetails = [task.subject, task.client, task.project].some((value) => String(value || '').trim());
+      const label = (task.subject || task.project || task.client || '').trim() || 'to zadanie';
+      const message = hasDetails
+        ? `Czy na pewno chcesz usunąć zadanie "${label}"?`
+        : 'Czy na pewno chcesz usunąć to zadanie?';
+      if (typeof window !== 'undefined') {
+        const confirmed = window.confirm(message);
+        if (!confirmed) {
+          closeTaskActions();
+          return;
+        }
+      }
+      delTask(task.id);
       closeTaskActions();
     },
     [delTask, closeTaskActions]

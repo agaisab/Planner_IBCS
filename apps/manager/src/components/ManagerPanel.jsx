@@ -560,6 +560,9 @@ const [logsConfirmOpen, setLogsConfirmOpen] = useState(false);
 const [logsClearing, setLogsClearing] = useState(false);
 const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
 const actionsMenuRef = useRef(null);
+const autoSaveTimerRef = useRef(null);
+const autoSavePlanIdRef = useRef(null);
+const [savingPlanId, setSavingPlanId] = useState(null);
 
 const selectedEmployeeId = selectedEmployee?.id;
 
@@ -670,7 +673,8 @@ const selectedEmployeeId = selectedEmployee?.id;
     setReportMonth(`${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, '0')}`);
   }, [monthCursor]);
 
-  const sentDay = selectedEmployee ? plansByDate[dKey] || null : null;
+const sentDay = selectedEmployee ? plansByDate[dKey] || null : null;
+const currentPlanId = selectedEmployeeId ? (sentDay?.id || planIdFor(selectedEmployeeId, dKey)) : null;
   const createDraft = (plan) =>
     plan
       ? { ...plan, dirty: false }
@@ -701,8 +705,91 @@ const selectedEmployeeId = selectedEmployee?.id;
     };
   }, [actionsMenuOpen]);
 
+  useEffect(() => {
+    if (!draftDay.dirty) {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+      return;
+    }
+    if (!selectedEmployeeId) return;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+
+    const pendingDraft = {
+      note: draftDay.note || '',
+      shifts: (draftDay.shifts || []).map((shift) => ({ ...shift }))
+    };
+
+    autoSaveTimerRef.current = setTimeout(async () => {
+      const planId = sentDay?.id || planIdFor(selectedEmployeeId, dKey);
+      const base = sentDay
+        ? sanitizePlan(sentDay)
+        : {
+            id: planId,
+            employeeId: selectedEmployeeId,
+            date: dKey,
+            shifts: [],
+            note: '',
+            sent: false,
+            sentAt: null,
+            logs: []
+          };
+      const nextPlanState = {
+        ...base,
+        id: planId,
+        employeeId: selectedEmployeeId,
+        date: dKey,
+        shifts: pendingDraft.shifts,
+        note: pendingDraft.note,
+        sent: base.sent || false,
+        sentAt: base.sentAt || null
+      };
+
+      const changeMessages = describePlanChanges(base, nextPlanState);
+      if (!changeMessages.length && base.note === nextPlanState.note) {
+        setDraftDay((prev) => ({ ...prev, dirty: false }));
+        autoSaveTimerRef.current = null;
+        return;
+      }
+
+      const logs = [...(base.logs || [])];
+      const logStamp = new Date().toISOString();
+      changeMessages.forEach((message) => {
+        logs.push({ type: 'MAN_PLAN_EDIT', at: logStamp, text: `Kierownik: ${message}` });
+      });
+
+      const payload = {
+        ...nextPlanState,
+        logs
+      };
+
+      try {
+        autoSavePlanIdRef.current = planId;
+        setSavingPlanId(planId);
+        await savePlan(payload);
+        setPlansByDate((prev) => ({ ...prev, [dKey]: payload }));
+        setDraftDay({ ...payload, dirty: false });
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        autoSaveTimerRef.current = null;
+        autoSavePlanIdRef.current = null;
+        setSavingPlanId(null);
+      }
+    }, 600);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+    };
+  }, [draftDay, selectedEmployeeId, sentDay, dKey, setPlansByDate]);
+
   const shifts = draftDay.shifts || [];
   const canSendPlan = shifts.length > 0;
+  const isSavingPlan = currentPlanId ? savingPlanId === currentPlanId : false;
   const submissionShifts = sentDay?.shifts?.length ? sentDay.shifts : shifts;
   const plannedMinutes = shifts.reduce((acc, shift) => acc + (toMinutes(shift.end) - toMinutes(shift.start)), 0);
   const planSpanLabel = useMemo(() => {
@@ -767,8 +854,12 @@ const selectedEmployeeId = selectedEmployee?.id;
 
   const sendPlan = async () => {
     if (!selectedEmployee || !selectedEmployeeId || !canSendPlan) return;
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
     const now = new Date().toISOString();
-    const planId = sentDay?.id || planIdFor(selectedEmployeeId, dKey);
+    const planId = currentPlanId || planIdFor(selectedEmployeeId, dKey);
     const base = sentDay
       ? sanitizePlan(sentDay)
       : {
@@ -804,9 +895,19 @@ const selectedEmployeeId = selectedEmployee?.id;
       ...nextPlanState,
       logs
     };
-    await savePlan(payload);
-    setPlansByDate((prev) => ({ ...prev, [dKey]: payload }));
-    setDraftDay({ ...payload, dirty: false });
+
+    try {
+      autoSavePlanIdRef.current = planId;
+      setSavingPlanId(planId);
+      await savePlan(payload);
+      setPlansByDate((prev) => ({ ...prev, [dKey]: payload }));
+      setDraftDay({ ...payload, dirty: false });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      autoSavePlanIdRef.current = null;
+      setSavingPlanId(null);
+    }
   };
 
   const statusByDate = useMemo(() => {
@@ -1429,9 +1530,11 @@ const selectedEmployeeId = selectedEmployee?.id;
                   onClick={sendPlan}
                   className={cls(
                     BTN,
-                    !canSendPlan && 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-100'
+                    (!canSendPlan || isSavingPlan) &&
+                      'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-100'
                   )}
-                  disabled={!canSendPlan}
+                  disabled={!canSendPlan || isSavingPlan}
+                  aria-busy={isSavingPlan}
                 >
                   <Send className="w-4 h-4 text-emerald-600" /> Wyślij
                 </button>
