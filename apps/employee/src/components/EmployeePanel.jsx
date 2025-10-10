@@ -9,11 +9,13 @@ import {
   Pencil,
   Save,
   CalendarPlus,
+  Download,
   Settings,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
   Plus,
+  LogIn,
   Trash2
 } from 'lucide-react';
 import {
@@ -480,7 +482,7 @@ const TaskRow = memo(function TaskRow({
               </button>
               <button
                 data-task-actions-menu
-                onClick={() => onExport(task)}
+                onClick={(event) => onExport(task, event.currentTarget)}
                 className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-slate-50"
               >
                 <CalendarPlus className="w-4 h-4" /> Do Outlooka
@@ -658,19 +660,10 @@ export default function EmployeePanel() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [monthCursor, setMonthCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [calendarOpen, setCalendarOpen] = useState(true);
-  const [planCollapsed, setPlanCollapsed] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    try {
-      const stored = window.localStorage.getItem('employee-plan-collapsed');
-      if (stored === 'true') return true;
-      if (stored === 'false') return false;
-    } catch {
-      /* ignore */
-    }
-    return true;
-  });
+  const [planCollapsed, setPlanCollapsed] = useState(true);
   const [taskActionsMenu, setTaskActionsMenu] = useState({ id: null, rect: null });
   const taskActionRefs = useRef({});
+  const [outlookMenu, setOutlookMenu] = useState({ task: null, anchor: null });
   const [splitPrompt, setSplitPrompt] = useState(null);
   const [splitProcessing, setSplitProcessing] = useState(false);
 
@@ -789,7 +782,12 @@ export default function EmployeePanel() {
     };
 
     const handleClick = (event) => {
-      if (event.target.closest('[data-task-actions-menu]')) return;
+      if (
+        event.target.closest('[data-task-actions-menu]') ||
+        event.target.closest('[data-outlook-options-menu]')
+      ) {
+        return;
+      }
       const anchor = taskActionRefs.current[taskActionsMenu.id];
       if (anchor && anchor.contains(event.target)) return;
       setTaskActionsMenu({ id: null, rect: null });
@@ -807,6 +805,32 @@ export default function EmployeePanel() {
       window.removeEventListener('mousedown', handleClick);
     };
   }, [taskActionsMenu.id]);
+
+  useEffect(() => {
+    if (!taskActionsMenu.id) {
+      setOutlookMenu({ task: null, anchor: null });
+    }
+  }, [taskActionsMenu.id]);
+
+  useEffect(() => {
+    if (!outlookMenu.task) return;
+
+    const handleClickOutside = (event) => {
+      if (event.target.closest('[data-outlook-options-menu]')) return;
+      setOutlookMenu({ task: null, anchor: null });
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') setOutlookMenu({ task: null, anchor: null });
+    };
+
+    window.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [outlookMenu.task]);
 
   const sentDay = selectedEmployee ? plansByDate[dKey] || null : null;
 
@@ -828,9 +852,7 @@ export default function EmployeePanel() {
     setDraftDay(createDraft(sentDay));
   }, [selectedEmployee?.id, dKey, sentDay]);
   useEffect(() => {
-    const stored = typeof window !== 'undefined' ? window.localStorage.getItem('employee-plan-collapsed') : null;
-    if (stored === 'true') setPlanCollapsed(true);
-    else if (stored === 'false') setPlanCollapsed(false);
+    setPlanCollapsed(true);
   }, [selectedEmployee?.id, dKey]);
 
   const shifts = draftDay.shifts || [];
@@ -839,6 +861,7 @@ export default function EmployeePanel() {
   const spanEnd = shifts.map((s) => s.end).filter(Boolean).sort().slice(-1)[0];
   const dayStatus = draftDay.dirty ? 'EDITED' : sentDay ? 'SENT' : shifts.length ? 'SAVED' : 'NONE';
   const wkOf = (task) => (ABSENCE_TASK_TYPES.includes(task.type) ? 'Zwykłe' : computeWorkKindFor(task, selectedDate, shifts));
+  const outlookAnchorRect = outlookMenu.anchor ? outlookMenu.anchor.getBoundingClientRect() : null;
 
   const addSegment = () =>
     setDraftDay((prev) => {
@@ -1031,59 +1054,201 @@ export default function EmployeePanel() {
     []
   );
 
-  const exportTaskICS = useCallback((task) => {
-    const toISOLocal = (date, hhmm) => {
-      const [h, m] = String(hhmm || '00:00').split(':').map(Number);
-      const dt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), h || 0, m || 0, 0, 0);
-      const offset = dt.getTimezoneOffset();
-      return new Date(dt.getTime() - offset * 60000).toISOString().slice(0, 19);
-    };
-    const start = toISOLocal(selectedDate, task.start || '08:00');
-    const end = toISOLocal(selectedDate, task.end || '09:00');
-    const summary = `${(task.client || '').trim()}${task.client && task.subject ? ' - ' : ''}${(task.subject || '').trim()}`;
-    const desc = `Klient: ${task.client || '-'}
+  const buildCalendarDetails = useCallback(
+    (task) => {
+      const ensureTime = (value, fallback) => (value && String(value).trim() ? value : fallback);
+      const toDatePayload = (hhmm, fallback) => {
+        const [h, m] = String(ensureTime(hhmm, fallback)).split(':').map(Number);
+        const dt = new Date(
+          selectedDate.getFullYear(),
+          selectedDate.getMonth(),
+          selectedDate.getDate(),
+          h || 0,
+          m || 0,
+          0,
+          0
+        );
+        const localIso = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000)
+          .toISOString()
+          .slice(0, 19);
+        const utcStamp = dt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+        return { localIso, utcStamp };
+      };
+
+      const startPayload = toDatePayload(task.start, '08:00');
+      const endPayload = toDatePayload(task.end, '09:00');
+
+      const summaryRaw = `${(task.client || '').trim()}${
+        task.client && task.subject ? ' - ' : ''
+      }${(task.subject || '').trim()}`;
+      const summary = summaryRaw.trim() || 'Zadanie';
+      const description = `Klient: ${task.client || '-'}
 Dotyczy: ${task.project || '-'}
 Status: ${task.status || '-'}`;
+      const uid = `${task.id || `task-${Date.now()}`}@planner-ibcs`;
+      const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 
-    const params = new URLSearchParams({
-      path: '/calendar/action/compose',
-      rru: 'addevent',
-      startdt: start,
-      enddt: end,
-      subject: summary,
-      body: desc
-    });
+      return {
+        summary,
+        description,
+        startLocal: startPayload.localIso,
+        endLocal: endPayload.localIso,
+        startUtc: startPayload.utcStamp,
+        endUtc: endPayload.utcStamp,
+        uid,
+        stamp
+      };
+    },
+    [selectedDate]
+  );
 
-    const url = `https://outlook.office.com/calendar/0/deeplink/compose?${params.toString()}`;
+  const openOutlookWeb = useCallback(
+    (task) => {
+      const details = buildCalendarDetails(task);
+      const params = new URLSearchParams({
+        path: '/calendar/action/compose',
+        rru: 'addevent',
+        startdt: details.startLocal,
+        enddt: details.endLocal,
+        subject: details.summary,
+        body: details.description
+      });
 
-    try {
-      const link = document.createElement('a');
-      link.href = url;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch {
-      /* no-op */
-    }
-  }, [selectedDate]);
+      const url = `https://outlook.office.com/calendar/0/deeplink/compose?${params.toString()}`;
+
+      try {
+        const win = window.open(url, '_blank', 'noopener,noreferrer');
+        if (win) return;
+      } catch {
+        /* ignore and fallback */
+      }
+
+      try {
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+          link.remove();
+        }, 100);
+        return;
+      } catch {
+        /* no-op */
+      }
+
+      window.location.assign(url);
+    },
+    [buildCalendarDetails]
+  );
+
+  const downloadTaskICS = useCallback(
+    (task) => {
+      const details = buildCalendarDetails(task);
+      const escapeICS = (value) =>
+        String(value || '')
+          .replace(/\\/g, '\\\\')
+          .replace(/\n/g, '\\n')
+          .replace(/,/g, '\\,')
+          .replace(/;/g, '\\;');
+
+      const lines = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//Planner IBCS//PL',
+        'BEGIN:VEVENT',
+        `UID:${details.uid}`,
+        `DTSTAMP:${details.stamp}`,
+        `DTSTART:${details.startUtc}`,
+        `DTEND:${details.endUtc}`,
+        `SUMMARY:${escapeICS(details.summary)}`,
+        `DESCRIPTION:${escapeICS(details.description)}`,
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ];
+
+      const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
+      const dateLabel = [
+        selectedDate.getFullYear(),
+        String(selectedDate.getMonth() + 1).padStart(2, '0'),
+        String(selectedDate.getDate()).padStart(2, '0')
+      ].join('-');
+      const baseName = (
+        (task.subject || '').trim() ||
+        (task.client || '').trim() ||
+        'zadanie'
+      )
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, '_');
+      const fileName = `${baseName || 'zadanie'}_${dateLabel}.ics`;
+
+      const blobUrl = URL.createObjectURL(blob);
+
+      const triggerDownload = () => {
+        try {
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = fileName.toLowerCase();
+          document.body.appendChild(link);
+          link.click();
+          setTimeout(() => {
+            URL.revokeObjectURL(blobUrl);
+            link.remove();
+          }, 300);
+        } catch {
+          /* no-op */
+        }
+      };
+
+      if (typeof navigator !== 'undefined' && 'msSaveOrOpenBlob' in navigator) {
+        try {
+          navigator.msSaveOrOpenBlob(blob, fileName.toLowerCase());
+          URL.revokeObjectURL(blobUrl);
+          return;
+        } catch {
+          /* ignore and fallback */
+        }
+      }
+
+      triggerDownload();
+    },
+    [buildCalendarDetails, selectedDate]
+  );
+
+  const closeOutlookMenu = useCallback(() => setOutlookMenu({ task: null, anchor: null }), []);
 
   const registerTaskActionAnchor = useCallback((id, node) => {
     if (node) taskActionRefs.current[id] = node;
     else delete taskActionRefs.current[id];
   }, []);
 
-  const closeTaskActions = useCallback(() => setTaskActionsMenu({ id: null, rect: null }), []);
+  const closeTaskActions = useCallback(() => {
+    setTaskActionsMenu({ id: null, rect: null });
+    closeOutlookMenu();
+  }, [closeOutlookMenu]);
+
+  const handleTaskExport = useCallback(
+    (task, anchor) => {
+      if (!anchor) {
+        openOutlookWeb(task);
+        closeTaskActions();
+        return;
+      }
+      setOutlookMenu({ task, anchor });
+    },
+    [closeTaskActions, openOutlookWeb]
+  );
 
   const toggleTaskActions = useCallback((id) => {
+    closeOutlookMenu();
     setTaskActionsMenu((prev) => {
       if (prev.id === id) return { id: null, rect: null };
       const anchor = taskActionRefs.current[id];
       if (!anchor) return prev;
       return { id, rect: anchor.getBoundingClientRect() };
     });
-  }, []);
+  }, [closeOutlookMenu]);
 
   const handleTaskFieldChange = useCallback(
     (id, patch) => {
@@ -1403,14 +1568,6 @@ Status: ${task.status || '-'}`;
       closeTaskActions();
     },
     [setTask, closeTaskActions]
-  );
-
-  const handleTaskExport = useCallback(
-    (task) => {
-      exportTaskICS(task);
-      closeTaskActions();
-    },
-    [exportTaskICS, closeTaskActions]
   );
 
   const handleTaskDelete = useCallback(
@@ -1799,19 +1956,7 @@ Status: ${task.status || '-'}`;
 
           <div className="mt-4 flex justify-center">
             <button
-              onClick={() =>
-                setPlanCollapsed((prev) => {
-                  const next = !prev;
-                  try {
-                    if (typeof window !== 'undefined') {
-                      window.localStorage.setItem('employee-plan-collapsed', String(next));
-                    }
-                  } catch {
-                    /* ignore */
-                  }
-                  return next;
-                })
-              }
+              onClick={() => setPlanCollapsed((prev) => !prev)}
               className="rounded-full border-2 border-slate-300 p-1.5 hover:bg-slate-50 transition-colors"
               aria-label={planCollapsed ? 'Rozwiń plan' : 'Zwiń plan'}
             >
@@ -1908,6 +2053,43 @@ Status: ${task.status || '-'}`;
             </table>
           </div>
         )}
+        {outlookMenu.task && outlookMenu.anchor && outlookAnchorRect &&
+          createPortal(
+            <div
+              data-outlook-options-menu
+              className="z-50 w-60 rounded-2xl border border-slate-200 bg-white shadow-2xl p-1 text-sm"
+              style={{
+                position: 'fixed',
+                top: outlookAnchorRect.bottom + 8,
+                left: outlookAnchorRect.left + outlookAnchorRect.width / 2,
+                transform: 'translate(-50%, 0)'
+              }}
+            >
+              <button
+                data-outlook-options-menu
+                type="button"
+                onClick={() => {
+                  openOutlookWeb(outlookMenu.task);
+                  requestAnimationFrame(() => closeTaskActions());
+                }}
+                className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-slate-50"
+              >
+                <LogIn className="w-4 h-4" /> Outlook Web
+              </button>
+              <button
+                data-outlook-options-menu
+                type="button"
+                onClick={() => {
+                  downloadTaskICS(outlookMenu.task);
+                  requestAnimationFrame(() => closeTaskActions());
+                }}
+                className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-slate-50"
+              >
+                <Download className="w-4 h-4" /> Pobierz plik ICS
+              </button>
+            </div>,
+            document.body
+          )}
         <div className="mt-3 flex items-center justify-between gap-2">
           <div>
             <button onClick={importPlanToTasks} className={BTN}>

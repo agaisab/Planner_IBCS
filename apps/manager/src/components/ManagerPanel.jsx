@@ -317,7 +317,7 @@ function PickerSection({ title, icon: IconComponent, count, items, selectedId, o
         </div>
         <div className="flex items-center gap-2">
           {typeof count === 'number' && (
-            <span className="text-xs font-semibold text-slate-500">{count}</span>
+            <span className="text-xs text-slate-400">{count}</span>
           )}
           {onCreate && (
             <button onClick={onCreate} className="rounded-full border-2 border-slate-300 p-1.5 hover:bg-slate-50" aria-label="Dodaj">
@@ -527,17 +527,7 @@ export default function ManagerPanel() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [monthCursor, setMonthCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [calendarOpen, setCalendarOpen] = useState(true);
-  const [managerPlanCollapsed, setManagerPlanCollapsed] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    try {
-      const stored = window.localStorage.getItem('manager-plan-collapsed');
-      if (stored === 'true') return true;
-      if (stored === 'false') return false;
-    } catch {
-      /* ignore */
-    }
-    return true;
-  });
+  const [managerPlanCollapsed, setManagerPlanCollapsed] = useState(true);
 
   const [empModalOpen, setEmpModalOpen] = useState(false);
   const [empMode, setEmpMode] = useState('create');
@@ -688,12 +678,11 @@ const selectedEmployeeId = selectedEmployee?.id;
     setDraftDay(createDraft(sentDay));
   }, [selectedEmployee?.id, dKey, sentDay]);
   useEffect(() => {
-    const stored = typeof window !== 'undefined' ? window.localStorage.getItem('manager-plan-collapsed') : null;
-    if (stored === 'true') setManagerPlanCollapsed(true);
-    else if (stored === 'false') setManagerPlanCollapsed(false);
+    setManagerPlanCollapsed(true);
   }, [selectedEmployee?.id, dKey]);
 
   const shifts = draftDay.shifts || [];
+  const canSendPlan = shifts.length > 0;
   const submissionShifts = sentDay?.shifts?.length ? sentDay.shifts : shifts;
   const plannedMinutes = shifts.reduce((acc, shift) => acc + (toMinutes(shift.end) - toMinutes(shift.start)), 0);
   const planSpanLabel = useMemo(() => {
@@ -757,7 +746,7 @@ const selectedEmployeeId = selectedEmployee?.id;
   };
 
   const sendPlan = async () => {
-    if (!selectedEmployee || !selectedEmployeeId) return;
+    if (!selectedEmployee || !selectedEmployeeId || !canSendPlan) return;
     const now = new Date().toISOString();
     const planId = sentDay?.id || planIdFor(selectedEmployeeId, dKey);
     const base = sentDay
@@ -1017,6 +1006,7 @@ const selectedEmployeeId = selectedEmployee?.id;
       th{background:#f8fafc;text-align:left}
       .muted{color:#64748b}
       .chip{display:inline-block;border:1px solid #cbd5e1;border-radius:9999px;padding:2px 8px;font-size:11px}
+      .weekend td{background:#e2e8f0}
     `;
     const styleTag = `<style>${styleContent}</style>`;
     const bodyChunks = [`<h1>${pageTitle}</h1>`];
@@ -1067,8 +1057,9 @@ const selectedEmployeeId = selectedEmployee?.id;
             .reduce((acc, item) => acc + (toMinutes(item.end) - toMinutes(item.start)), 0);
           sumReported += reported;
         }
+        const isWeekend = date.getDay() === 0 || date.getDay() === 6;
         bodyChunks.push(
-          `<tr><td>${date.toLocaleDateString('pl-PL', { weekday: 'short', day: '2-digit', month: '2-digit' })}</td><td>${planText}${
+          `<tr${isWeekend ? ' class="weekend"' : ''}><td>${date.toLocaleDateString('pl-PL', { weekday: 'short', day: '2-digit', month: '2-digit' })}</td><td>${planText}${
             planMinutes ? ` <span class="chip">${minutesToHHmm(planMinutes)} h</span>` : ''
           }</td>${reportDetailed ? `<td>${tasksCell}</td>` : ''}</tr>`
         );
@@ -1386,7 +1377,7 @@ const selectedEmployeeId = selectedEmployee?.id;
                 >
                   <Plus className="w-4 h-4" />
                 </button>
-                <button onClick={sendPlan} className={BTN}>
+                <button onClick={sendPlan} className={BTN} disabled={!canSendPlan}>
                   <Send className="w-4 h-4 text-emerald-600" /> Wyślij
                 </button>
               </div>
@@ -1462,19 +1453,7 @@ const selectedEmployeeId = selectedEmployee?.id;
 
         <div className="mt-4 flex justify-center">
           <button
-            onClick={() =>
-              setManagerPlanCollapsed((prev) => {
-                const next = !prev;
-                try {
-                  if (typeof window !== 'undefined') {
-                    window.localStorage.setItem('manager-plan-collapsed', String(next));
-                  }
-                } catch {
-                  /* ignore */
-                }
-                return next;
-              })
-            }
+            onClick={() => setManagerPlanCollapsed((prev) => !prev)}
             className="rounded-full border-2 border-slate-300 p-1.5 hover:bg-slate-50 transition-colors"
             aria-label={managerPlanCollapsed ? 'Rozwiń plan' : 'Zwiń plan'}
           >

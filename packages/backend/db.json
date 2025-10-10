@@ -149,7 +149,18 @@
       "employeeId": "e1760090733222",
       "date": "2025-10-10",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-10T11:01:39.458Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] sss (Klient: sss)"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-10T11:01:39.458Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        }
+      ],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -161,10 +172,22 @@
       "sent": true,
       "sentAt": "2025-10-10T10:40:36.132Z",
       "submission": {
-        "items": [],
+        "items": [
+          {
+            "id": "t1760094053756",
+            "type": "Biuro",
+            "subject": "sss",
+            "client": "sss",
+            "project": "ssss",
+            "start": "08:00",
+            "end": "16:00",
+            "workKind": "Zwykłe",
+            "status": "Planowane"
+          }
+        ],
         "status": "SUBMITTED",
-        "submittedAt": "2025-10-10T10:38:25.179Z",
-        "reportedMinutes": 0,
+        "submittedAt": "2025-10-10T11:01:39.458Z",
+        "reportedMinutes": 480,
         "dayStatus": "W trakcie"
       }
     },
