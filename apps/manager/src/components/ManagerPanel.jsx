@@ -14,7 +14,8 @@ import {
   BarChart3,
   Printer,
   Settings,
-  Download
+  Download,
+  Menu
 } from 'lucide-react';
 import {
   cls,
@@ -557,6 +558,8 @@ const [reportMonth, setReportMonth] = useState(() => `${monthCursor.getFullYear(
 const [reportDetailed, setReportDetailed] = useState(false);
 const [logsConfirmOpen, setLogsConfirmOpen] = useState(false);
 const [logsClearing, setLogsClearing] = useState(false);
+const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+const actionsMenuRef = useRef(null);
 
 const selectedEmployeeId = selectedEmployee?.id;
 
@@ -680,6 +683,23 @@ const selectedEmployeeId = selectedEmployee?.id;
   useEffect(() => {
     setManagerPlanCollapsed(true);
   }, [selectedEmployee?.id, dKey]);
+
+  useEffect(() => {
+    if (!actionsMenuOpen) return;
+    const handleClickOutside = (event) => {
+      if (actionsMenuRef.current && actionsMenuRef.current.contains(event.target)) return;
+      setActionsMenuOpen(false);
+    };
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') setActionsMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [actionsMenuOpen]);
 
   const shifts = draftDay.shifts || [];
   const canSendPlan = shifts.length > 0;
@@ -1158,14 +1178,42 @@ const selectedEmployeeId = selectedEmployee?.id;
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => setAutoOpen(true)} className={BTN} aria-label="Plan miesiąca">
-            <CalendarDays className="w-4 h-4" />
-            <span className="hidden sm:inline">Plan</span>
-          </button>
-          <button onClick={() => setReportsOpen(true)} className={BTN} aria-label="Raporty">
-            <BarChart3 className="w-4 h-4" />
-            <span className="hidden sm:inline">Raporty</span>
-          </button>
+          <div className="relative" ref={actionsMenuRef}>
+            <button
+              type="button"
+              onClick={() => setActionsMenuOpen((prev) => !prev)}
+              className={BTN}
+              aria-haspopup="true"
+              aria-expanded={actionsMenuOpen}
+              aria-label="Menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            {actionsMenuOpen && (
+              <div className="absolute right-0 z-30 mt-2 w-48 rounded-2xl border-2 border-slate-200 bg-white shadow-xl p-1 text-sm">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActionsMenuOpen(false);
+                    setAutoOpen(true);
+                  }}
+                  className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-slate-50"
+                >
+                  <CalendarDays className="w-4 h-4" /> Plan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActionsMenuOpen(false);
+                    setReportsOpen(true);
+                  }}
+                  className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-slate-50"
+                >
+                  <BarChart3 className="w-4 h-4" /> Raporty
+                </button>
+              </div>
+            )}
+          </div>
           <button onClick={() => setCalendarOpen((o) => !o)} className={BTN} aria-label="Pokaż/ukryj kalendarz">
             <CalIcon className="w-5 h-5" />
           </button>
@@ -1377,7 +1425,14 @@ const selectedEmployeeId = selectedEmployee?.id;
                 >
                   <Plus className="w-4 h-4" />
                 </button>
-                <button onClick={sendPlan} className={BTN} disabled={!canSendPlan}>
+                <button
+                  onClick={sendPlan}
+                  className={cls(
+                    BTN,
+                    !canSendPlan && 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-100'
+                  )}
+                  disabled={!canSendPlan}
+                >
                   <Send className="w-4 h-4 text-emerald-600" /> Wyślij
                 </button>
               </div>

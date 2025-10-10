@@ -47,6 +47,13 @@ const BTN =
   'inline-flex items-center gap-2 rounded-xl border-2 border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed';
 const CARD = 'rounded-2xl border-2 border-slate-300 bg-white shadow-sm p-4';
 const CHIP = 'inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-sm';
+const REQUIRED_TASK_FIELDS = [
+  { key: 'subject', label: 'Temat' },
+  { key: 'client', label: 'Klient' },
+  { key: 'project', label: 'Dotyczy' },
+  { key: 'start', label: 'Godzina startu' },
+  { key: 'end', label: 'Godzina końca' }
+];
 const WEEK_DAYS = ['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'];
 const ABSENCE_TASK_TYPES = ['Urlop', 'L4', 'Nieobecność'];
 
@@ -966,6 +973,7 @@ export default function EmployeePanel() {
     : 'W trakcie';
 
   const taskItems = useMemo(() => subDraft.items || [], [subDraft.items]);
+  const canSendTasks = taskItems.length > 0;
   useEffect(() => {
     if (!taskItems.length) {
       setTaskActionsMenu({ id: null, rect: null });
@@ -1288,9 +1296,13 @@ Status: ${task.status || '-'}`;
 
       if ('status' in patch && patch.status === 'Zakończone') {
         const preview = { ...targetTask, ...patch };
-        if (!preview.start || !preview.end) {
+        const missing = REQUIRED_TASK_FIELDS.filter(({ key }) => {
+          const value = preview[key];
+          return !value || !String(value).trim();
+        }).map(({ label }) => label);
+        if (missing.length) {
           if (typeof window !== 'undefined') {
-            window.alert('Aby oznaczyć zadanie jako zakończone, uzupełnij godziny startu i końca.');
+            window.alert(`Aby oznaczyć zadanie jako zakończone, uzupełnij pola: ${missing.join(', ')}.`);
           }
           return;
         }
@@ -1579,7 +1591,7 @@ Status: ${task.status || '-'}`;
   );
 
   const sendTasksToManager = async () => {
-    if (!selectedEmployee) return;
+    if (!selectedEmployee || !canSendTasks) return;
     const now = new Date().toISOString();
     const items = taskItems.map((item) => ({
       ...item,
@@ -2100,7 +2112,14 @@ Status: ${task.status || '-'}`;
             <button onClick={addTask} className={BTN}>
               <Plus className="w-4 h-4" /> Dodaj zadanie
             </button>
-            <button onClick={sendTasksToManager} className={BTN}>
+            <button
+              onClick={sendTasksToManager}
+              className={cls(
+                BTN,
+                !canSendTasks && 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-100'
+              )}
+              disabled={!canSendTasks}
+            >
               <Send className="w-4 h-4 text-emerald-600" /> Wyślij zadania
             </button>
           </div>

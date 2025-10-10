@@ -244,7 +244,18 @@
       "employeeId": "e1760090733222",
       "date": "2025-10-16",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-10T11:16:06.381Z",
+          "text": "Pracownik: przesłał 0 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-10T11:16:07.494Z",
+          "text": "Pracownik: przesłał 0 zadań"
+        }
+      ],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -253,7 +264,14 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-10T10:05:46.979Z"
+      "sentAt": "2025-10-10T10:05:46.979Z",
+      "submission": {
+        "items": [],
+        "status": "SUBMITTED",
+        "submittedAt": "2025-10-10T11:16:07.494Z",
+        "reportedMinutes": 0,
+        "dayStatus": "W trakcie"
+      }
     },
     {
       "id": "e1760090733222_2025-10-17",
