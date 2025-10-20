@@ -14,8 +14,7 @@ import {
   BarChart3,
   Printer,
   Settings,
-  Download,
-  Menu
+  Download
 } from 'lucide-react';
 import {
   cls,
@@ -558,11 +557,6 @@ const [reportMonth, setReportMonth] = useState(() => `${monthCursor.getFullYear(
 const [reportDetailed, setReportDetailed] = useState(false);
 const [logsConfirmOpen, setLogsConfirmOpen] = useState(false);
 const [logsClearing, setLogsClearing] = useState(false);
-const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
-const actionsMenuRef = useRef(null);
-const autoSaveTimerRef = useRef(null);
-const autoSavePlanIdRef = useRef(null);
-const [savingPlanId, setSavingPlanId] = useState(null);
 
 const selectedEmployeeId = selectedEmployee?.id;
 
@@ -673,8 +667,7 @@ const selectedEmployeeId = selectedEmployee?.id;
     setReportMonth(`${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, '0')}`);
   }, [monthCursor]);
 
-const sentDay = selectedEmployee ? plansByDate[dKey] || null : null;
-const currentPlanId = selectedEmployeeId ? (sentDay?.id || planIdFor(selectedEmployeeId, dKey)) : null;
+  const sentDay = selectedEmployee ? plansByDate[dKey] || null : null;
   const createDraft = (plan) =>
     plan
       ? { ...plan, dirty: false }
@@ -688,108 +681,8 @@ const currentPlanId = selectedEmployeeId ? (sentDay?.id || planIdFor(selectedEmp
     setManagerPlanCollapsed(true);
   }, [selectedEmployee?.id, dKey]);
 
-  useEffect(() => {
-    if (!actionsMenuOpen) return;
-    const handleClickOutside = (event) => {
-      if (actionsMenuRef.current && actionsMenuRef.current.contains(event.target)) return;
-      setActionsMenuOpen(false);
-    };
-    const handleEscape = (event) => {
-      if (event.key === 'Escape') setActionsMenuOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [actionsMenuOpen]);
-
-  useEffect(() => {
-    if (!draftDay.dirty) {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-        autoSaveTimerRef.current = null;
-      }
-      return;
-    }
-    if (!selectedEmployeeId) return;
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-
-    const pendingDraft = {
-      note: draftDay.note || '',
-      shifts: (draftDay.shifts || []).map((shift) => ({ ...shift }))
-    };
-
-    autoSaveTimerRef.current = setTimeout(async () => {
-      const planId = sentDay?.id || planIdFor(selectedEmployeeId, dKey);
-      const base = sentDay
-        ? sanitizePlan(sentDay)
-        : {
-            id: planId,
-            employeeId: selectedEmployeeId,
-            date: dKey,
-            shifts: [],
-            note: '',
-            sent: false,
-            sentAt: null,
-            logs: []
-          };
-      const nextPlanState = {
-        ...base,
-        id: planId,
-        employeeId: selectedEmployeeId,
-        date: dKey,
-        shifts: pendingDraft.shifts,
-        note: pendingDraft.note,
-        sent: base.sent || false,
-        sentAt: base.sentAt || null
-      };
-
-      const changeMessages = describePlanChanges(base, nextPlanState);
-      if (!changeMessages.length && base.note === nextPlanState.note) {
-        setDraftDay((prev) => ({ ...prev, dirty: false }));
-        autoSaveTimerRef.current = null;
-        return;
-      }
-
-      const logs = [...(base.logs || [])];
-      const logStamp = new Date().toISOString();
-      changeMessages.forEach((message) => {
-        logs.push({ type: 'MAN_PLAN_EDIT', at: logStamp, text: `Kierownik: ${message}` });
-      });
-
-      const payload = {
-        ...nextPlanState,
-        logs
-      };
-
-      try {
-        autoSavePlanIdRef.current = planId;
-        setSavingPlanId(planId);
-        await savePlan(payload);
-        setPlansByDate((prev) => ({ ...prev, [dKey]: payload }));
-        setDraftDay({ ...payload, dirty: false });
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        autoSaveTimerRef.current = null;
-        autoSavePlanIdRef.current = null;
-        setSavingPlanId(null);
-      }
-    }, 600);
-
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-        autoSaveTimerRef.current = null;
-      }
-    };
-  }, [draftDay, selectedEmployeeId, sentDay, dKey, setPlansByDate]);
-
   const shifts = draftDay.shifts || [];
   const canSendPlan = shifts.length > 0;
-  const isSavingPlan = currentPlanId ? savingPlanId === currentPlanId : false;
   const submissionShifts = sentDay?.shifts?.length ? sentDay.shifts : shifts;
   const plannedMinutes = shifts.reduce((acc, shift) => acc + (toMinutes(shift.end) - toMinutes(shift.start)), 0);
   const planSpanLabel = useMemo(() => {
@@ -801,7 +694,7 @@ const currentPlanId = selectedEmployeeId ? (sentDay?.id || planIdFor(selectedEmp
   }, [shifts]);
   const planSpan = useMemo(() => getPlanSpanMins(shifts), [shifts]);
   const submissionSpan = useMemo(() => getPlanSpanMins(submissionShifts), [submissionShifts]);
-  const dayStatus = draftDay.dirty ? 'EDITED' : sentDay ? 'SENT' : shifts.length ? 'SAVED' : 'NONE';
+  const dayStatus = draftDay.dirty ? 'EDITED' : sentDay ? 'SENT' : 'NONE';
 
   const addSegment = () =>
     setDraftDay((prev) => {
@@ -854,12 +747,8 @@ const currentPlanId = selectedEmployeeId ? (sentDay?.id || planIdFor(selectedEmp
 
   const sendPlan = async () => {
     if (!selectedEmployee || !selectedEmployeeId || !canSendPlan) return;
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = null;
-    }
     const now = new Date().toISOString();
-    const planId = currentPlanId || planIdFor(selectedEmployeeId, dKey);
+    const planId = sentDay?.id || planIdFor(selectedEmployeeId, dKey);
     const base = sentDay
       ? sanitizePlan(sentDay)
       : {
@@ -895,19 +784,9 @@ const currentPlanId = selectedEmployeeId ? (sentDay?.id || planIdFor(selectedEmp
       ...nextPlanState,
       logs
     };
-
-    try {
-      autoSavePlanIdRef.current = planId;
-      setSavingPlanId(planId);
-      await savePlan(payload);
-      setPlansByDate((prev) => ({ ...prev, [dKey]: payload }));
-      setDraftDay({ ...payload, dirty: false });
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      autoSavePlanIdRef.current = null;
-      setSavingPlanId(null);
-    }
+    await savePlan(payload);
+    setPlansByDate((prev) => ({ ...prev, [dKey]: payload }));
+    setDraftDay({ ...payload, dirty: false });
   };
 
   const statusByDate = useMemo(() => {
@@ -1279,42 +1158,14 @@ const currentPlanId = selectedEmployeeId ? (sentDay?.id || planIdFor(selectedEmp
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="relative" ref={actionsMenuRef}>
-            <button
-              type="button"
-              onClick={() => setActionsMenuOpen((prev) => !prev)}
-              className={BTN}
-              aria-haspopup="true"
-              aria-expanded={actionsMenuOpen}
-              aria-label="Menu"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            {actionsMenuOpen && (
-              <div className="absolute right-0 z-30 mt-2 w-48 rounded-2xl border-2 border-slate-200 bg-white shadow-xl p-1 text-sm">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActionsMenuOpen(false);
-                    setAutoOpen(true);
-                  }}
-                  className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-slate-50"
-                >
-                  <CalendarDays className="w-4 h-4" /> Plan
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActionsMenuOpen(false);
-                    setReportsOpen(true);
-                  }}
-                  className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-slate-50"
-                >
-                  <BarChart3 className="w-4 h-4" /> Raporty
-                </button>
-              </div>
-            )}
-          </div>
+          <button onClick={() => setAutoOpen(true)} className={BTN} aria-label="Plan miesiąca">
+            <CalendarDays className="w-4 h-4" />
+            <span className="hidden sm:inline">Plan</span>
+          </button>
+          <button onClick={() => setReportsOpen(true)} className={BTN} aria-label="Raporty">
+            <BarChart3 className="w-4 h-4" />
+            <span className="hidden sm:inline">Raporty</span>
+          </button>
           <button onClick={() => setCalendarOpen((o) => !o)} className={BTN} aria-label="Pokaż/ukryj kalendarz">
             <CalIcon className="w-5 h-5" />
           </button>
@@ -1396,22 +1247,20 @@ const currentPlanId = selectedEmployeeId ? (sentDay?.id || planIdFor(selectedEmp
       <section className={CARD}>
         <div className="mb-3 flex items-center justify-between">
           <div className="font-medium">
-            Plan kierownika (ramowy) – <span className="text-slate-600">{selectedEmployee?.name ?? '—'}</span>
+            Plan dnia – <span className="text-slate-600">{selectedEmployee?.name ?? '—'}</span>
           </div>
           {dayStatus !== 'NONE' && (
-              <span
-                className={cls(
-                  CHIP,
-                  dayStatus === 'SENT'
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
-                    : dayStatus === 'SAVED'
-                    ? 'bg-amber-50 border-amber-300 text-amber-700'
-                    : 'bg-violet-50 border-violet-300 text-violet-700'
-                )}
-              >
-                {dayStatus === 'SENT' ? 'Wysłane' : dayStatus === 'SAVED' ? 'Zapisane' : 'Edytowane'}
-              </span>
-            )}
+            <span
+              className={cls(
+                CHIP,
+                dayStatus === 'SENT'
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                  : 'bg-violet-50 border-violet-300 text-violet-700'
+              )}
+            >
+              {dayStatus === 'SENT' ? 'Wysłane' : 'Edytowane'}
+            </span>
+          )}
         </div>
         <div className="text-sm text-slate-500 mb-2 flex items-center gap-2">
           <CalendarDays className="w-4 h-4" />
@@ -1526,16 +1375,7 @@ const currentPlanId = selectedEmployeeId ? (sentDay?.id || planIdFor(selectedEmp
                 >
                   <Plus className="w-4 h-4" />
                 </button>
-                <button
-                  onClick={sendPlan}
-                  className={cls(
-                    BTN,
-                    (!canSendPlan || isSavingPlan) &&
-                      'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-100'
-                  )}
-                  disabled={!canSendPlan || isSavingPlan}
-                  aria-busy={isSavingPlan}
-                >
+                <button onClick={sendPlan} className={BTN} disabled={!canSendPlan}>
                   <Send className="w-4 h-4 text-emerald-600" /> Wyślij
                 </button>
               </div>

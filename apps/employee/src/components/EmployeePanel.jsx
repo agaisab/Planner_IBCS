@@ -47,13 +47,6 @@ const BTN =
   'inline-flex items-center gap-2 rounded-xl border-2 border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed';
 const CARD = 'rounded-2xl border-2 border-slate-300 bg-white shadow-sm p-4';
 const CHIP = 'inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-sm';
-const REQUIRED_TASK_FIELDS = [
-  { key: 'subject', label: 'Temat' },
-  { key: 'client', label: 'Klient' },
-  { key: 'project', label: 'Dotyczy' },
-  { key: 'start', label: 'Godzina startu' },
-  { key: 'end', label: 'Godzina końca' }
-];
 const WEEK_DAYS = ['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'];
 const ABSENCE_TASK_TYPES = ['Urlop', 'L4', 'Nieobecność'];
 
@@ -477,7 +470,7 @@ const TaskRow = memo(function TaskRow({
                 disabled={!!task.locked}
                 className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
               >
-                <Save className="w-4 h-4" /> {task.locked ? 'Zapisane' : 'Zapisz'}
+                <Save className="w-4 h-4" /> Zapisz
               </button>
               <button
                 data-task-actions-menu
@@ -496,7 +489,7 @@ const TaskRow = memo(function TaskRow({
               </button>
               <button
                 data-task-actions-menu
-                onClick={() => onDelete(task)}
+                onClick={() => onDelete(task.id)}
                 className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-rose-700 hover:bg-rose-50"
               >
                 <Trash2 className="w-4 h-4" /> Usuń
@@ -866,7 +859,7 @@ export default function EmployeePanel() {
   const planned = shifts.reduce((acc, s) => acc + (toMinutes(s.end) - toMinutes(s.start)), 0);
   const spanStart = shifts.map((s) => s.start).filter(Boolean).sort()[0];
   const spanEnd = shifts.map((s) => s.end).filter(Boolean).sort().slice(-1)[0];
-  const dayStatus = draftDay.dirty ? 'EDITED' : sentDay ? 'SENT' : shifts.length ? 'SAVED' : 'NONE';
+  const dayStatus = draftDay.dirty ? 'EDITED' : sentDay ? 'SENT' : 'NONE';
   const wkOf = (task) => (ABSENCE_TASK_TYPES.includes(task.type) ? 'Zwykłe' : computeWorkKindFor(task, selectedDate, shifts));
   const outlookAnchorRect = outlookMenu.anchor ? outlookMenu.anchor.getBoundingClientRect() : null;
 
@@ -973,7 +966,6 @@ export default function EmployeePanel() {
     : 'W trakcie';
 
   const taskItems = useMemo(() => subDraft.items || [], [subDraft.items]);
-  const canSendTasks = taskItems.length > 0;
   useEffect(() => {
     if (!taskItems.length) {
       setTaskActionsMenu({ id: null, rect: null });
@@ -1296,13 +1288,9 @@ Status: ${task.status || '-'}`;
 
       if ('status' in patch && patch.status === 'Zakończone') {
         const preview = { ...targetTask, ...patch };
-        const missing = REQUIRED_TASK_FIELDS.filter(({ key }) => {
-          const value = preview[key];
-          return !value || !String(value).trim();
-        }).map(({ label }) => label);
-        if (missing.length) {
+        if (!preview.start || !preview.end) {
           if (typeof window !== 'undefined') {
-            window.alert(`Aby oznaczyć zadanie jako zakończone, uzupełnij pola: ${missing.join(', ')}.`);
+            window.alert('Aby oznaczyć zadanie jako zakończone, uzupełnij godziny startu i końca.');
           }
           return;
         }
@@ -1583,35 +1571,15 @@ Status: ${task.status || '-'}`;
   );
 
   const handleTaskDelete = useCallback(
-    (task) => {
-      if (!task) return;
-      if (task.locked) {
-        if (typeof window !== 'undefined') {
-          window.alert('Aby usunąć zadanie, najpierw je odblokuj.');
-        }
-        closeTaskActions();
-        return;
-      }
-      const hasDetails = [task.subject, task.client, task.project].some((value) => String(value || '').trim());
-      const label = (task.subject || task.project || task.client || '').trim() || 'to zadanie';
-      const message = hasDetails
-        ? `Czy na pewno chcesz usunąć zadanie "${label}"?`
-        : 'Czy na pewno chcesz usunąć to zadanie?';
-      if (typeof window !== 'undefined') {
-        const confirmed = window.confirm(message);
-        if (!confirmed) {
-          closeTaskActions();
-          return;
-        }
-      }
-      delTask(task.id);
+    (id) => {
+      delTask(id);
       closeTaskActions();
     },
     [delTask, closeTaskActions]
   );
 
   const sendTasksToManager = async () => {
-    if (!selectedEmployee || !canSendTasks) return;
+    if (!selectedEmployee) return;
     const now = new Date().toISOString();
     const items = taskItems.map((item) => ({
       ...item,
@@ -1782,20 +1750,18 @@ Status: ${task.status || '-'}`;
             <div className="font-medium">
               Plan dnia – <span className="text-slate-600">{selectedEmployee?.name ?? '—'}</span>
             </div>
-            {dayStatus !== 'NONE' && (
-              <span
-                className={cls(
-                  CHIP,
-                  dayStatus === 'SENT'
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
-                    : dayStatus === 'SAVED'
-                    ? 'bg-amber-50 border-amber-300 text-amber-700'
-                    : 'bg-violet-50 border-violet-300 text-violet-700'
-                )}
-              >
-                {dayStatus === 'SENT' ? 'Wysłane' : dayStatus === 'SAVED' ? 'Zapisane' : 'Edytowane'}
-              </span>
-            )}
+          {dayStatus !== 'NONE' && (
+            <span
+              className={cls(
+                CHIP,
+                dayStatus === 'SENT'
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                  : 'bg-violet-50 border-violet-300 text-violet-700'
+              )}
+            >
+              {dayStatus === 'SENT' ? 'Wysłane' : 'Edytowane'}
+            </span>
+          )}
           </div>
           <div className="text-sm text-slate-500 mb-2 flex items-center gap-2">
             <CalendarDays className="w-4 h-4" />
@@ -2132,14 +2098,7 @@ Status: ${task.status || '-'}`;
             <button onClick={addTask} className={BTN}>
               <Plus className="w-4 h-4" /> Dodaj zadanie
             </button>
-            <button
-              onClick={sendTasksToManager}
-              className={cls(
-                BTN,
-                !canSendTasks && 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-100'
-              )}
-              disabled={!canSendTasks}
-            >
+            <button onClick={sendTasksToManager} className={BTN}>
               <Send className="w-4 h-4 text-emerald-600" /> Wyślij zadania
             </button>
           </div>
