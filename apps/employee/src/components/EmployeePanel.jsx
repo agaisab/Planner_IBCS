@@ -891,7 +891,19 @@ export default function EmployeePanel() {
 
   const setSegField = (idx, field, value) =>
     setDraftDay((prev) => {
-      const next = (prev.shifts || []).map((shift, i) => (i === idx ? { ...shift, [field]: value } : shift));
+      const next = (prev.shifts || []).map((shift, i) => {
+        if (i !== idx) return shift;
+        const updated = { ...shift, [field]: value };
+        if (field === 'mode') {
+          if (['VACATION', 'SICK', 'ABSENCE'].includes(value)) {
+            return { ...updated, start: '', end: '' };
+          }
+          if (['VACATION', 'SICK', 'ABSENCE'].includes(shift.mode || '')) {
+            return { ...updated, start: shift.start || '08:00', end: shift.end || '16:00' };
+          }
+        }
+        return updated;
+      });
       return { ...prev, shifts: next, dirty: true };
     });
 

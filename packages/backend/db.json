@@ -219,17 +219,22 @@
           "type": "SENT",
           "at": "2025-10-20T08:58:01.977Z",
           "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-20T09:16:19.185Z",
+          "text": "Pracownik: Zmieniono zakres 1: czas 08:00–16:00 → —–—, tryb Biuro → L4"
         }
       ],
       "shifts": [
         {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
+          "mode": "SICK",
+          "start": "",
+          "end": ""
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:58:01.977Z"
+      "sentAt": "2025-10-20T09:16:19.185Z"
     },
     {
       "id": "e1760950667599_2025-10-08",
@@ -241,17 +246,22 @@
           "type": "SENT",
           "at": "2025-10-20T08:58:01.977Z",
           "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-20T09:00:07.176Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
         }
       ],
       "shifts": [
         {
-          "mode": "OFFICE",
+          "mode": "ABSENCE",
           "start": "08:00",
           "end": "16:00"
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:58:01.977Z"
+      "sentAt": "2025-10-20T09:00:07.176Z"
     },
     {
       "id": "e1760950667599_2025-10-14",
@@ -285,17 +295,22 @@
           "type": "SENT",
           "at": "2025-10-20T08:58:01.977Z",
           "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "MAN_PLAN_EDIT",
+          "at": "2025-10-20T09:01:36.689Z",
+          "text": "Kierownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
         }
       ],
       "shifts": [
         {
-          "mode": "OFFICE",
+          "mode": "ABSENCE",
           "start": "08:00",
           "end": "16:00"
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:58:01.977Z"
+      "sentAt": "2025-10-20T09:01:36.689Z"
     },
     {
       "id": "e1760950667599_2025-10-17",
@@ -329,17 +344,22 @@
           "type": "SENT",
           "at": "2025-10-20T08:58:01.977Z",
           "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-20T09:00:37.939Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
         }
       ],
       "shifts": [
         {
-          "mode": "OFFICE",
+          "mode": "ABSENCE",
           "start": "08:00",
           "end": "16:00"
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:58:01.977Z"
+      "sentAt": "2025-10-20T09:00:37.939Z"
     },
     {
       "id": "e1760950667599_2025-10-20",
@@ -378,17 +398,22 @@
           "type": "SENT",
           "at": "2025-10-20T08:58:01.977Z",
           "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-20T09:12:33.605Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
         }
       ],
       "shifts": [
         {
-          "mode": "OFFICE",
+          "mode": "ABSENCE",
           "start": "08:00",
           "end": "16:00"
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:58:01.977Z"
+      "sentAt": "2025-10-20T09:12:33.605Z"
     },
     {
       "id": "e1760950667599_2025-10-22",
@@ -400,17 +425,22 @@
           "type": "SENT",
           "at": "2025-10-20T08:58:01.977Z",
           "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-20T09:01:27.701Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
         }
       ],
       "shifts": [
         {
-          "mode": "OFFICE",
+          "mode": "ABSENCE",
           "start": "08:00",
           "end": "16:00"
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:58:01.977Z"
+      "sentAt": "2025-10-20T09:01:27.701Z"
     },
     {
       "id": "e1760950667599_2025-10-23",

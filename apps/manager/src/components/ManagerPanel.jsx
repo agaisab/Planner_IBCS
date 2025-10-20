@@ -753,7 +753,19 @@ const selectedEmployeeId = selectedEmployee?.id;
 
   const setSegField = (idx, field, value) =>
     setDraftDay((prev) => {
-      const next = (prev.shifts || []).map((shift, i) => (i === idx ? { ...shift, [field]: value } : shift));
+      const next = (prev.shifts || []).map((shift, i) => {
+        if (i !== idx) return shift;
+        const updated = { ...shift, [field]: value };
+        if (field === 'mode') {
+          if (['VACATION', 'SICK', 'ABSENCE'].includes(value)) {
+            return { ...updated, start: '', end: '' };
+          }
+          if (['VACATION', 'SICK', 'ABSENCE'].includes((shift.mode || ''))) {
+            return { ...updated, start: shift.start || '08:00', end: shift.end || '16:00' };
+          }
+        }
+        return updated;
+      });
       return { ...prev, shifts: next, dirty: true };
     });
 
@@ -943,7 +955,7 @@ const selectedEmployeeId = selectedEmployee?.id;
         shiftsArr = [{ mode: 'OFFICE', start: '08:00', end: '12:00' }];
         logText = `Auto (${monthLabel}): 08:00–12:00 Biuro`;
       } else {
-        shiftsArr = [{ mode: 'ABSENCE', start: '', end: '' }];
+        shiftsArr = [{ mode: 'ABSENCE', start: '08:00', end: '16:00' }];
         logText = `Auto (${monthLabel}): Nieobecność`;
       }
       const existing = plansByDate[key];
