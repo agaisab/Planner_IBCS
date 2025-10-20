@@ -201,16 +201,22 @@
       "employeeId": "e1760090733222",
       "date": "2025-10-14",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-20T08:11:00.252Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
+        }
+      ],
       "shifts": [
         {
-          "mode": "OFFICE",
+          "mode": "ABSENCE",
           "start": "08:00",
           "end": "16:00"
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-10T10:05:46.979Z"
+      "sentAt": "2025-10-20T08:11:00.252Z"
     },
     {
       "id": "e1760090733222_2025-10-15",

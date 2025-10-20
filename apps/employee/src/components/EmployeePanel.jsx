@@ -29,6 +29,7 @@ import {
   minutesToHHmm,
   toMinutes,
   stripActor,
+  deepEqual,
   MODE_META,
   TASK_TYPE_COLORS,
   STATUS_STYLES,
@@ -729,8 +730,8 @@ export default function EmployeePanel() {
           acc[plan.date] = plan;
           return acc;
         }, {});
-        setPlansByDate(map);
-        setMonthlyLogs(logs);
+        setPlansByDate((prev) => (deepEqual(prev, map) ? prev : map));
+        setMonthlyLogs((prev) => (deepEqual(prev, logs) ? prev : logs));
       } catch (err) {
         if (!active) return;
         setError(err.message);
@@ -753,9 +754,16 @@ export default function EmployeePanel() {
         const plan = await fetchPlanById(planIdFor(selectedEmployee.id, dKey));
         if (!active) return;
         setPlansByDate((prev) => {
+          if (plan) {
+            const current = prev[plan.date];
+            if (current && deepEqual(current, plan)) return prev;
+            if (!current && !plan) return prev;
+            const next = { ...prev, [plan.date]: plan };
+            return next;
+          }
+          if (!prev[dKey]) return prev;
           const next = { ...prev };
-          if (plan) next[plan.date] = plan;
-          else delete next[dKey];
+          delete next[dKey];
           return next;
         });
       } catch (err) {
@@ -849,7 +857,8 @@ export default function EmployeePanel() {
 
   const [draftDay, setDraftDay] = useState(createDraft(sentDay));
   useEffect(() => {
-    setDraftDay(createDraft(sentDay));
+    const nextDraft = createDraft(sentDay);
+    setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
   }, [selectedEmployee?.id, dKey, sentDay]);
   useEffect(() => {
     setPlanCollapsed(true);
@@ -953,8 +962,13 @@ export default function EmployeePanel() {
       logs
     };
     await savePlan(payload);
-    setPlansByDate((prev) => ({ ...prev, [dKey]: payload }));
-    setDraftDay({ ...payload, dirty: false });
+    setPlansByDate((prev) => {
+      const current = prev[dKey];
+      if (current && deepEqual(current, payload)) return prev;
+      return { ...prev, [dKey]: payload };
+    });
+    const nextDraft = { ...payload, dirty: false };
+    setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
   };
 
   const submitted = sentDay?.submission;
@@ -1639,8 +1653,13 @@ Status: ${task.status || '-'}`;
       logs
     };
     await savePlan(payload);
-    setPlansByDate((prev) => ({ ...prev, [dKey]: payload }));
-    setDraftDay((prev) => ({ ...(prev || {}), dirty: false }));
+    setPlansByDate((prev) => {
+      const current = prev[dKey];
+      if (current && deepEqual(current, payload)) return prev;
+      return { ...prev, [dKey]: payload };
+    });
+    const nextDraft = { ...payload, dirty: false };
+    setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
     setSubDraft({ ...submission });
   };
 

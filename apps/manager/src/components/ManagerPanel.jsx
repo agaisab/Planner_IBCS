@@ -47,7 +47,8 @@ import {
   fetchMonthlyLogs,
   createMonthlyLog,
   deleteMonthlyLogsForEmployee,
-  deletePlan
+  deletePlan,
+  deepEqual
 } from '@planner/shared';
 import Logo from '../assets/ibcs-logo.png';
 
@@ -627,9 +628,11 @@ const selectedEmployeeId = selectedEmployee?.id;
           acc[plan.date] = plan;
           return acc;
         }, {});
-        setPlansByDate(map);
-        setMonthlyLogs(logs);
-        setReportSelectedIds([selectedEmployee.id]);
+        setPlansByDate((prev) => (deepEqual(prev, map) ? prev : map));
+        setMonthlyLogs((prev) => (deepEqual(prev, logs) ? prev : logs));
+        setReportSelectedIds((prev) =>
+          prev.length === 1 && prev[0] === selectedEmployee.id ? prev : [selectedEmployee.id]
+        );
       } catch (err) {
         if (!active) return;
         setError(err.message);
@@ -650,9 +653,15 @@ const selectedEmployeeId = selectedEmployee?.id;
         const plan = await fetchPlanById(planIdFor(selectedEmployee.id, dKey));
         if (!active) return;
         setPlansByDate((prev) => {
+          if (plan) {
+            const current = prev[plan.date];
+            if (current && deepEqual(current, plan)) return prev;
+            const next = { ...prev, [plan.date]: plan };
+            return next;
+          }
+          if (!prev[dKey]) return prev;
           const next = { ...prev };
-          if (plan) next[plan.date] = plan;
-          else delete next[dKey];
+          delete next[dKey];
           return next;
         });
       } catch (err) {
@@ -678,7 +687,8 @@ const selectedEmployeeId = selectedEmployee?.id;
 
   const [draftDay, setDraftDay] = useState(createDraft(sentDay));
   useEffect(() => {
-    setDraftDay(createDraft(sentDay));
+    const nextDraft = createDraft(sentDay);
+    setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
   }, [selectedEmployee?.id, dKey, sentDay]);
   useEffect(() => {
     setManagerPlanCollapsed(true);
@@ -807,8 +817,13 @@ const selectedEmployeeId = selectedEmployee?.id;
       logs
     };
     await savePlan(payload);
-    setPlansByDate((prev) => ({ ...prev, [dKey]: payload }));
-    setDraftDay({ ...payload, dirty: false });
+    setPlansByDate((prev) => {
+      const current = prev[dKey];
+      if (current && deepEqual(current, payload)) return prev;
+      return { ...prev, [dKey]: payload };
+    });
+    const nextDraft = { ...payload, dirty: false };
+    setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
   };
 
   const statusByDate = useMemo(() => {
