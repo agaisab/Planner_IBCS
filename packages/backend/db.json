@@ -13,6 +13,14 @@
       "employmentType": "Pełen etat",
       "managerId": "m1759924410365",
       "email": ""
+    },
+    {
+      "id": "e1760949921548",
+      "name": "Pracownik 2",
+      "role": "Technik",
+      "employmentType": "Pełen etat",
+      "managerId": "m1759924410365",
+      "email": ""
     }
   ],
   "plans": [
@@ -233,16 +241,51 @@
       "employeeId": "e1760949525960",
       "date": "2025-10-20",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "MAN_PLAN_EDIT",
+          "at": "2025-10-20T08:44:49.702Z",
+          "text": "Kierownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-20T08:45:02.679Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] asda (Klient: sadda)"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-20T08:45:02.679Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        }
+      ],
       "shifts": [
         {
-          "mode": "OFFICE",
+          "mode": "ABSENCE",
           "start": "08:00",
           "end": "16:00"
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
+      "sentAt": "2025-10-20T08:44:49.702Z",
+      "submission": {
+        "items": [
+          {
+            "id": "t1760949897265",
+            "type": "Biuro",
+            "subject": "asda",
+            "client": "sadda",
+            "project": "dasda",
+            "start": "08:00",
+            "end": "16:00",
+            "workKind": "Zwykłe",
+            "status": "Planowane"
+          }
+        ],
+        "status": "SUBMITTED",
+        "submittedAt": "2025-10-20T08:45:02.679Z",
+        "reportedMinutes": 480,
+        "dayStatus": "W trakcie"
+      }
     },
     {
       "id": "e1760949525960_2025-10-21",

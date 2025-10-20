@@ -1,26 +1,35 @@
 import { useEffect, useRef, useState } from 'react';
 import { deepEqual } from '../utils.js';
 
-export const useEmployeePlans = (employeeId, { fetchPlans, fetchLogs } = {}) => {
+const DEFAULT_POLL = 4000;
+
+export const useEmployeePlans = (employeeId, { fetchPlans, fetchLogs, pollInterval = DEFAULT_POLL } = {}) => {
   const [data, setData] = useState({ plansByDate: {}, logs: [], loading: false, error: null });
-  const abortRef = useRef(null);
+  const timeoutRef = useRef(null);
 
   useEffect(() => {
     if (!employeeId || !fetchPlans || !fetchLogs) {
       setData({ plansByDate: {}, logs: [], loading: false, error: null });
-      return () => undefined;
+      return () => {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+      };
     }
 
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setData((prev) => ({ ...prev, loading: true }));
+    let cancelled = false;
 
-    (async () => {
+    const fetchData = async (showLoading) => {
+      if (showLoading) {
+        setData((prev) => ({ ...prev, loading: true }));
+      }
       try {
         const [plansList, logs] = await Promise.all([
-          fetchPlans(employeeId, controller.signal),
-          fetchLogs(employeeId, controller.signal)
+          fetchPlans(employeeId),
+          fetchLogs(employeeId)
         ]);
+        if (cancelled) return;
         const plansMap = (plansList || []).reduce((acc, plan) => {
           if (plan?.date) acc[plan.date] = plan;
           return acc;
@@ -28,7 +37,9 @@ export const useEmployeePlans = (employeeId, { fetchPlans, fetchLogs } = {}) => 
         setData((prev) => {
           const samePlans = deepEqual(prev.plansByDate, plansMap);
           const sameLogs = deepEqual(prev.logs, logs);
-          if (samePlans && sameLogs && !prev.error && !prev.loading) return prev;
+          if (samePlans && sameLogs && !prev.error && !showLoading) {
+            return prev.loading === false ? prev : { ...prev, loading: false };
+          }
           return {
             plansByDate: plansMap,
             logs: logs || [],
@@ -37,15 +48,30 @@ export const useEmployeePlans = (employeeId, { fetchPlans, fetchLogs } = {}) => 
           };
         });
       } catch (err) {
-        if (controller.signal.aborted) return;
-        setData({ plansByDate: {}, logs: [], loading: false, error: err instanceof Error ? err.message : String(err) });
+        if (cancelled) return;
+        setData({
+          plansByDate: {},
+          logs: [],
+          loading: false,
+          error: err instanceof Error ? err.message : String(err)
+        });
+      } finally {
+        if (!cancelled && pollInterval > 0) {
+          timeoutRef.current = setTimeout(() => fetchData(false), pollInterval);
+        }
       }
-    })();
+    };
+
+    fetchData(true);
 
     return () => {
-      controller.abort();
+      cancelled = true;
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
     };
-  }, [employeeId, fetchPlans, fetchLogs]);
+  }, [employeeId, fetchPlans, fetchLogs, pollInterval]);
 
   return data;
 };
