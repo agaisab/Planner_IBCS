@@ -30,6 +30,9 @@ import {
   toMinutes,
   stripActor,
   deepEqual,
+  summarizePlan,
+  buildPlanLogs,
+  buildTaskLogs,
   MODE_META,
   TASK_TYPE_COLORS,
   STATUS_STYLES,
@@ -40,6 +43,7 @@ import {
   fetchPlansForEmployee,
   fetchPlanById,
   fetchMonthlyLogs,
+  useEmployeePlans,
   savePlan
 } from '@planner/shared';
 import Logo from '../assets/ibcs-logo.png';
@@ -709,40 +713,26 @@ export default function EmployeePanel() {
     }
   }, [selectedManager, employees, selectedEmployee]);
 
+  const { plansByDate: hookPlansByDate, logs: hookLogs, loading: hookLoading, error: hookError } = useEmployeePlans(
+    selectedEmployee?.id,
+    {
+      fetchPlans: fetchPlansForEmployee,
+      fetchLogs: fetchMonthlyLogs
+    }
+  );
+
   useEffect(() => {
-    let active = true;
-    if (!selectedEmployee) {
+    if (selectedEmployee?.id) {
+      setPlansByDate((prev) => (deepEqual(prev, hookPlansByDate) ? prev : hookPlansByDate));
+      setMonthlyLogs((prev) => (deepEqual(prev, hookLogs) ? prev : hookLogs));
+      setLoadingPlans(hookLoading);
+      setError(hookError);
+    } else {
       setPlansByDate({});
       setMonthlyLogs([]);
-      return () => {
-        active = false;
-      };
+      setLoadingPlans(false);
     }
-    (async () => {
-      setLoadingPlans(true);
-      try {
-        const [plansList, logs] = await Promise.all([
-          fetchPlansForEmployee(selectedEmployee.id),
-          fetchMonthlyLogs(selectedEmployee.id)
-        ]);
-        if (!active) return;
-        const map = plansList.reduce((acc, plan) => {
-          acc[plan.date] = plan;
-          return acc;
-        }, {});
-        setPlansByDate((prev) => (deepEqual(prev, map) ? prev : map));
-        setMonthlyLogs((prev) => (deepEqual(prev, logs) ? prev : logs));
-      } catch (err) {
-        if (!active) return;
-        setError(err.message);
-      } finally {
-        if (active) setLoadingPlans(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [selectedEmployee?.id]);
+  }, [selectedEmployee?.id, hookPlansByDate, hookLogs, hookLoading, hookError]);
 
   const dKey = ymd(selectedDate);
 
@@ -911,16 +901,6 @@ export default function EmployeePanel() {
       return { ...prev, shifts: next, dirty: true };
     });
 
-  const summarizePlan = (data) => {
-    const parts = (data.shifts || []).map((shift) => {
-      const label = MODE_META[shift.mode || 'OFFICE']?.label;
-      return shift.start && shift.end
-        ? `${formatTimeLabel(shift.start)}–${formatTimeLabel(shift.end)} ${label}`
-        : label;
-    });
-    return parts.length ? parts.join(' · ') : '—';
-  };
-
   const sendPlanToManager = async () => {
     if (!selectedEmployee) return;
     const now = new Date().toISOString();
@@ -949,13 +929,15 @@ export default function EmployeePanel() {
     };
 
     const changeMessages = describePlanChanges(base, nextPlanState);
-    const logs = [...(base.logs || [])];
-    changeMessages.forEach((message) => {
-      logs.push({ type: 'EMP_PLAN_EDIT', at: now, text: `Pracownik: ${message}` });
+    const logs = buildPlanLogs({
+      baseLogs: base.logs,
+      changeMessages,
+      now,
+      actorLabel: 'Pracownik',
+      summaryText: summarizePlan(draftDay),
+      editType: 'EMP_PLAN_EDIT',
+      summaryType: 'EMP_PLAN_MOD'
     });
-    if (!changeMessages.length) {
-      logs.push({ type: 'EMP_PLAN_MOD', at: now, text: `Pracownik: ${summarizePlan(draftDay)}` });
-    }
 
     const payload = {
       ...nextPlanState,
@@ -1639,14 +1621,17 @@ Status: ${task.status || '-'}`;
     const planMessages = describePlanChanges(base, nextPlanState);
     const taskMessages = describeTaskChanges(base.submission?.items || [], items);
 
-    const logs = [...(base.logs || [])];
-    planMessages.forEach((message) => {
-      logs.push({ type: 'EMP_PLAN_EDIT', at: now, text: `Pracownik: ${message}` });
+    const logs = buildTaskLogs({
+      baseLogs: base.logs,
+      planMessages,
+      taskMessages,
+      now,
+      actorLabel: 'Pracownik',
+      submitCount: items.length,
+      planEditType: 'EMP_PLAN_EDIT',
+      taskEditType: 'EMP_TASK_EDIT',
+      submitType: 'EMP_SUBMIT'
     });
-    taskMessages.forEach((message) => {
-      logs.push({ type: 'EMP_TASK_EDIT', at: now, text: `Pracownik: ${message}` });
-    });
-    logs.push({ type: 'EMP_SUBMIT', at: now, text: `Pracownik: przesłał ${items.length || 0} zadań` });
 
     const payload = {
       ...nextPlanState,

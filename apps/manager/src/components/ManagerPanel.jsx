@@ -48,7 +48,10 @@ import {
   createMonthlyLog,
   deleteMonthlyLogsForEmployee,
   deletePlan,
-  deepEqual
+  deepEqual,
+  useEmployeePlans,
+  summarizePlan,
+  buildPlanLogs
 } from '@planner/shared';
 import Logo from '../assets/ibcs-logo.png';
 
@@ -607,43 +610,31 @@ const selectedEmployeeId = selectedEmployee?.id;
 
   const dKey = ymd(selectedDate);
 
+  const {
+    plansByDate: hookPlansByDate,
+    logs: hookLogs,
+    loading: hookLoading,
+    error: hookError
+  } = useEmployeePlans(selectedEmployee?.id, {
+    fetchPlans: fetchPlansForEmployee,
+    fetchLogs: fetchMonthlyLogs
+  });
+
   useEffect(() => {
-    let active = true;
-    if (!selectedEmployee) {
+    if (!selectedEmployee?.id) {
       setPlansByDate({});
       setMonthlyLogs([]);
-      return () => {
-        active = false;
-      };
+      setLoadingPlans(false);
+      return;
     }
-    (async () => {
-      setLoadingPlans(true);
-      try {
-        const [planList, logs] = await Promise.all([
-          fetchPlansForEmployee(selectedEmployee.id),
-          fetchMonthlyLogs(selectedEmployee.id)
-        ]);
-        if (!active) return;
-        const map = planList.reduce((acc, plan) => {
-          acc[plan.date] = plan;
-          return acc;
-        }, {});
-        setPlansByDate((prev) => (deepEqual(prev, map) ? prev : map));
-        setMonthlyLogs((prev) => (deepEqual(prev, logs) ? prev : logs));
-        setReportSelectedIds((prev) =>
-          prev.length === 1 && prev[0] === selectedEmployee.id ? prev : [selectedEmployee.id]
-        );
-      } catch (err) {
-        if (!active) return;
-        setError(err.message);
-      } finally {
-        if (active) setLoadingPlans(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [selectedEmployee?.id]);
+    setPlansByDate((prev) => (deepEqual(prev, hookPlansByDate) ? prev : hookPlansByDate));
+    setMonthlyLogs((prev) => (deepEqual(prev, hookLogs) ? prev : hookLogs));
+    setLoadingPlans(hookLoading);
+    if (hookError) setError(hookError);
+    setReportSelectedIds((prev) =>
+      prev.length === 1 && prev[0] === selectedEmployee.id ? prev : [selectedEmployee.id]
+    );
+  }, [selectedEmployee?.id, hookPlansByDate, hookLogs, hookLoading, hookError]);
 
   useEffect(() => {
     let active = true;
@@ -767,16 +758,6 @@ const selectedEmployeeId = selectedEmployee?.id;
       return { ...prev, shifts: next, dirty: true };
     });
 
-  const summarizePlan = (data) => {
-    const parts = (data.shifts || []).map((shift) => {
-      const label = MODE_META[shift.mode || 'OFFICE']?.label;
-      return shift.start && shift.end
-        ? `${formatTimeLabel(shift.start)}–${formatTimeLabel(shift.end)} ${label}`
-        : label;
-    });
-    return parts.length ? parts.join(' · ') : '—';
-  };
-
   const sendPlan = async () => {
     if (!selectedEmployee || !selectedEmployeeId || !canSendPlan) return;
     const now = new Date().toISOString();
@@ -806,11 +787,16 @@ const selectedEmployeeId = selectedEmployee?.id;
     };
 
     const changeMessages = describePlanChanges(base, nextPlanState);
-    const logs = [...(base.logs || [])];
-    changeMessages.forEach((message) => {
-      logs.push({ type: 'MAN_PLAN_EDIT', at: now, text: `Kierownik: ${message}` });
+    const logs = buildPlanLogs({
+      baseLogs: base.logs,
+      changeMessages,
+      now,
+      actorLabel: 'Kierownik',
+      summaryText: summarizePlan(draftDay),
+      editType: 'MAN_PLAN_EDIT',
+      summaryType: 'SENT',
+      includeSummaryWhenChanged: true
     });
-    logs.push({ type: 'SENT', at: now, text: summarizePlan(draftDay) });
 
     const payload = {
       ...nextPlanState,

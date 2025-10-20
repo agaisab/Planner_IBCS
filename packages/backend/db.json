@@ -223,48 +223,139 @@
       "employeeId": "e1760090733222",
       "date": "2025-10-15",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-20T08:28:42.757Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
+        }
+      ],
       "shifts": [
         {
-          "mode": "OFFICE",
+          "mode": "ABSENCE",
           "start": "08:00",
           "end": "16:00"
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-10T10:05:46.979Z"
+      "sentAt": "2025-10-20T08:28:42.757Z"
     },
     {
       "id": "e1760090733222_2025-10-16",
       "employeeId": "e1760090733222",
       "date": "2025-10-16",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-20T08:33:50.928Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-20T08:33:50.928Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-20T08:33:50.928Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-20T08:35:29.980Z",
+          "text": "Pracownik: Zmieniono zakres 1: czas 08:00–16:00 → 08:00–15:00, tryb Nieobecność → Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-20T08:36:21.625Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
+        }
+      ],
       "shifts": [
         {
-          "mode": "OFFICE",
+          "mode": "ABSENCE",
           "start": "08:00",
-          "end": "16:00"
+          "end": "15:00"
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-10T10:05:46.979Z"
+      "sentAt": "2025-10-20T08:36:21.625Z",
+      "submission": {
+        "items": [
+          {
+            "id": "t1760949229274",
+            "type": "Biuro",
+            "subject": "",
+            "client": "",
+            "project": "",
+            "start": "08:00",
+            "end": "16:00",
+            "workKind": "Zwykłe",
+            "status": "Planowane"
+          }
+        ],
+        "status": "SUBMITTED",
+        "submittedAt": "2025-10-20T08:33:50.928Z",
+        "reportedMinutes": 480,
+        "dayStatus": "W trakcie"
+      }
     },
     {
       "id": "e1760090733222_2025-10-17",
       "employeeId": "e1760090733222",
       "date": "2025-10-17",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-20T08:34:01.981Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-20T08:34:01.981Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-20T08:34:04.728Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-20T08:36:27.804Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
+        }
+      ],
       "shifts": [
         {
-          "mode": "OFFICE",
+          "mode": "ABSENCE",
           "start": "08:00",
           "end": "16:00"
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-10T10:05:46.979Z"
+      "sentAt": "2025-10-20T08:36:27.804Z",
+      "submission": {
+        "items": [
+          {
+            "id": "t1760949239422",
+            "type": "Biuro",
+            "subject": "",
+            "client": "",
+            "project": "",
+            "start": "08:00",
+            "end": "16:00",
+            "workKind": "Zwykłe",
+            "status": "Planowane"
+          }
+        ],
+        "status": "SUBMITTED",
+        "submittedAt": "2025-10-20T08:34:04.728Z",
+        "reportedMinutes": 480,
+        "dayStatus": "W trakcie"
+      }
     },
     {
       "id": "e1760090733222_2025-10-20",

@@ -1,3 +1,5 @@
+import { MODE_META } from './constants.js';
+
 export const cls = (...args) => args.filter(Boolean).join(' ');
 
 export const ymd = (date) =>
@@ -19,6 +21,11 @@ export const stripActor = (text) => {
   if (value.startsWith('Pracownik: ')) return value.slice(11);
   if (value.startsWith('Kierownik: ')) return value.slice(11);
   return value;
+};
+
+export const formatTimeLabel = (value) => {
+  if (!value) return '—';
+  return value === '24:00' ? '00:00' : value;
 };
 
 export const isWeekend = (date) => {
@@ -97,6 +104,16 @@ export const computeWorkKindFor = (task, date, shifts) => {
 
   if (touchesNight) return 'Nocne';
   return 'H + 50%';
+};
+
+export const summarizePlan = (data) => {
+  const parts = (data?.shifts || []).map((shift) => {
+    const label = MODE_META[shift.mode || 'OFFICE']?.label;
+    return shift.start && shift.end
+      ? `${formatTimeLabel(shift.start)}–${formatTimeLabel(shift.end)} ${label}`
+      : label;
+  });
+  return parts.length ? parts.join(' · ') : '—';
 };
 
 const isObjectLike = (value) => value !== null && typeof value === 'object';
