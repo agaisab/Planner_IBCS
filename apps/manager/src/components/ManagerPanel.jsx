@@ -50,6 +50,7 @@ import {
   deletePlan,
   deepEqual,
   useEmployeePlans,
+  useManagersAndEmployees,
   summarizePlan,
   buildPlanLogs
 } from '@planner/shared';
@@ -518,8 +519,18 @@ function EmployeeCalendar({ monthStart, selectedDate, setSelectedDate, statusByD
 }
 
 export default function ManagerPanel() {
-  const [managers, setManagers] = useState([]);
-  const [employees, setEmployees] = useState([]);
+  const {
+    managers,
+    employees,
+    loading: loadingDirectory,
+    error: directoryError,
+    refresh: refreshDirectory
+  } = useManagersAndEmployees(
+    {
+      fetchManagers,
+      fetchEmployees
+    }
+  );
   const [selectedManager, setSelectedManager] = useState(null);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [plansByDate, setPlansByDate] = useState({});
@@ -568,30 +579,18 @@ const actionsMenuRef = useRef(null);
 const selectedEmployeeId = selectedEmployee?.id;
 
   useEffect(() => {
-    let active = true;
-    (async () => {
-      setLoadingInitial(true);
-      try {
-        const [mgrs, emps] = await Promise.all([fetchManagers(), fetchEmployees()]);
-        if (!active) return;
-        setManagers(mgrs);
-        setEmployees(emps);
-        const defaultManager = mgrs[0] ?? null;
-        setSelectedManager((prev) => prev ?? defaultManager);
-        const defaultEmployee =
-          emps.find((emp) => emp.managerId === defaultManager?.id) ?? emps[0] ?? null;
-        setSelectedEmployee((prev) => prev ?? defaultEmployee);
-      } catch (err) {
-        if (!active) return;
-        setError(err.message);
-      } finally {
-        if (active) setLoadingInitial(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
+    setLoadingInitial(loadingDirectory);
+  }, [loadingDirectory]);
+
+  useEffect(() => {
+    if (directoryError) setError(directoryError);
+  }, [directoryError]);
+
+  useEffect(() => {
+    if (!selectedManager && managers.length) {
+      setSelectedManager(managers[0]);
+    }
+  }, [managers, selectedManager]);
 
   useEffect(() => {
     if (!selectedManager) {
@@ -878,28 +877,13 @@ const selectedEmployeeId = selectedEmployee?.id;
   }, [monthlyLogsSel, sentDay?.logs]);
   const hasLogs = logsList.length > 0;
 
-  const refreshEmployees = async () => {
-    const list = await fetchEmployees();
-    setEmployees(list);
-    return list;
-  };
-
-  const refreshManagers = async () => {
-    const list = await fetchManagers();
-    setManagers(list);
-    return list;
-  };
 
   const handleDeleteEmployee = async (employee) => {
     const employeePlans = await fetchPlansForEmployee(employee.id);
     await Promise.all(employeePlans.map((plan) => deletePlan(plan.id)));
     await deleteMonthlyLogsForEmployee(employee.id);
     await deleteEmployee(employee.id);
-    const updatedEmployees = await refreshEmployees();
-    if (selectedEmployee?.id === employee.id) {
-      const next = updatedEmployees.filter((emp) => emp.managerId === selectedManager?.id && emp.id !== employee.id);
-      setSelectedEmployee(next[0] ?? null);
-    }
+    await refreshDirectory();
     setPlansByDate({});
     setMonthlyLogs([]);
   };
@@ -1859,8 +1843,7 @@ const selectedEmployeeId = selectedEmployee?.id;
                   affectedEmployees.map((emp) => updateEmployee(emp.id, { managerId: fallback?.id || emp.managerId }))
                 );
                 await deleteManager(targetId);
-                await refreshManagers();
-                await refreshEmployees();
+                await refreshDirectory();
                 setSelectedManager(fallback || null);
                 setSelectedEmployee(null);
                 setManConfirmTarget(null);
@@ -1945,7 +1928,7 @@ const selectedEmployeeId = selectedEmployee?.id;
                     managerId: selectedManager?.id || empDraft.managerId
                   };
                   await createEmployee(payload);
-                  await refreshEmployees();
+                  await refreshDirectory();
                   setSelectedEmployee(payload);
                 } else {
                   await updateEmployee(empDraft.id, {
@@ -1953,7 +1936,7 @@ const selectedEmployeeId = selectedEmployee?.id;
                     role: empDraft.role,
                     employmentType: empDraft.employmentType
                   });
-                  await refreshEmployees();
+                  await refreshDirectory();
                   if (selectedEmployee?.id === empDraft.id) {
                     setSelectedEmployee({
                       ...selectedEmployee,

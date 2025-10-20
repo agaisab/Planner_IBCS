@@ -44,6 +44,7 @@ import {
   fetchPlanById,
   fetchMonthlyLogs,
   useEmployeePlans,
+  useManagersAndEmployees,
   savePlan
 } from '@planner/shared';
 import Logo from '../assets/ibcs-logo.png';
@@ -651,8 +652,13 @@ function EmployeeCalendar({ monthStart, selectedDate, setSelectedDate, statusByD
 }
 
 export default function EmployeePanel() {
-  const [managers, setManagers] = useState([]);
-  const [employees, setEmployees] = useState([]);
+  const {
+    managers,
+    employees,
+    loading: loadingDirectory,
+    error: directoryError,
+    refresh: refreshDirectory
+  } = useManagersAndEmployees({ fetchManagers, fetchEmployees });
   const [selectedManager, setSelectedManager] = useState(null);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [plansByDate, setPlansByDate] = useState({});
@@ -673,30 +679,18 @@ export default function EmployeePanel() {
   const [splitProcessing, setSplitProcessing] = useState(false);
 
   useEffect(() => {
-    let active = true;
-    (async () => {
-      setLoadingInitial(true);
-      try {
-        const [mgrs, emps] = await Promise.all([fetchManagers(), fetchEmployees()]);
-        if (!active) return;
-        setManagers(mgrs);
-        setEmployees(emps);
-        const defaultManager = mgrs[0] ?? null;
-        setSelectedManager((prev) => prev ?? defaultManager);
-        const defaultEmployee =
-          emps.find((emp) => emp.managerId === defaultManager?.id) ?? emps[0] ?? null;
-        setSelectedEmployee((prev) => prev ?? defaultEmployee);
-      } catch (err) {
-        if (!active) return;
-        setError(err.message);
-      } finally {
-        if (active) setLoadingInitial(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
+    setLoadingInitial(loadingDirectory);
+  }, [loadingDirectory]);
+
+  useEffect(() => {
+    if (directoryError) setError(directoryError);
+  }, [directoryError]);
+
+  useEffect(() => {
+    if (!selectedManager && managers.length) {
+      setSelectedManager(managers[0]);
+    }
+  }, [managers, selectedManager]);
 
   useEffect(() => {
     if (!selectedManager) {

@@ -7,16 +7,8 @@
   ],
   "employees": [
     {
-      "id": "e1760949525960",
-      "name": "Pracownik",
-      "role": "Technik",
-      "employmentType": "Pełen etat",
-      "managerId": "m1759924410365",
-      "email": ""
-    },
-    {
-      "id": "e1760949921548",
-      "name": "Pracownik 2",
+      "id": "e1760950667599",
+      "name": "AAA",
       "role": "Technik",
       "employmentType": "Pełen etat",
       "managerId": "m1759924410365",
@@ -25,274 +17,369 @@
   ],
   "plans": [
     {
-      "id": "e1760949525960_2025-10-02",
-      "employeeId": "e1760949525960",
+      "id": "e1760950667599_2025-10-02",
+      "employeeId": "e1760950667599",
       "date": "2025-10-02",
-      "note": "",
-      "logs": [],
-      "shifts": [
-        {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
-        }
-      ],
-      "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
-    },
-    {
-      "id": "e1760949525960_2025-10-08",
-      "employeeId": "e1760949525960",
-      "date": "2025-10-08",
-      "note": "",
-      "logs": [],
-      "shifts": [
-        {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
-        }
-      ],
-      "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
-    },
-    {
-      "id": "e1760949525960_2025-10-01",
-      "employeeId": "e1760949525960",
-      "date": "2025-10-01",
-      "note": "",
-      "logs": [],
-      "shifts": [
-        {
-          "mode": "ABSENCE",
-          "start": "08:00",
-          "end": "16:00",
-          "note": "zmianaaa2"
-        }
-      ],
-      "sent": true,
-      "sentAt": "2025-10-20T08:41:31.424Z",
-      "submission": {
-        "items": [
-          {
-            "id": "t1760949705302",
-            "type": "Biuro",
-            "subject": "",
-            "client": "",
-            "project": "",
-            "start": "08:00",
-            "end": "16:00",
-            "workKind": "Zwykłe",
-            "status": "Planowane"
-          }
-        ],
-        "status": "SUBMITTED",
-        "submittedAt": "2025-10-20T08:41:47.145Z",
-        "reportedMinutes": 480,
-        "dayStatus": "W trakcie"
-      }
-    },
-    {
-      "id": "e1760949525960_2025-10-09",
-      "employeeId": "e1760949525960",
-      "date": "2025-10-09",
-      "note": "",
-      "logs": [],
-      "shifts": [
-        {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
-        }
-      ],
-      "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
-    },
-    {
-      "id": "e1760949525960_2025-10-10",
-      "employeeId": "e1760949525960",
-      "date": "2025-10-10",
-      "note": "",
-      "logs": [],
-      "shifts": [
-        {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
-        }
-      ],
-      "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
-    },
-    {
-      "id": "e1760949525960_2025-10-13",
-      "employeeId": "e1760949525960",
-      "date": "2025-10-13",
-      "note": "",
-      "logs": [],
-      "shifts": [
-        {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
-        }
-      ],
-      "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
-    },
-    {
-      "id": "e1760949525960_2025-10-03",
-      "employeeId": "e1760949525960",
-      "date": "2025-10-03",
-      "note": "",
-      "logs": [],
-      "shifts": [
-        {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
-        }
-      ],
-      "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
-    },
-    {
-      "id": "e1760949525960_2025-10-14",
-      "employeeId": "e1760949525960",
-      "date": "2025-10-14",
-      "note": "",
-      "logs": [],
-      "shifts": [
-        {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
-        }
-      ],
-      "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
-    },
-    {
-      "id": "e1760949525960_2025-10-15",
-      "employeeId": "e1760949525960",
-      "date": "2025-10-15",
-      "note": "",
-      "logs": [],
-      "shifts": [
-        {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
-        }
-      ],
-      "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
-    },
-    {
-      "id": "e1760949525960_2025-10-06",
-      "employeeId": "e1760949525960",
-      "date": "2025-10-06",
-      "note": "",
-      "logs": [],
-      "shifts": [
-        {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
-        }
-      ],
-      "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
-    },
-    {
-      "id": "e1760949525960_2025-10-16",
-      "employeeId": "e1760949525960",
-      "date": "2025-10-16",
-      "note": "",
-      "logs": [],
-      "shifts": [
-        {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
-        }
-      ],
-      "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
-    },
-    {
-      "id": "e1760949525960_2025-10-17",
-      "employeeId": "e1760949525960",
-      "date": "2025-10-17",
-      "note": "",
-      "logs": [],
-      "shifts": [
-        {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
-        }
-      ],
-      "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
-    },
-    {
-      "id": "e1760949525960_2025-10-20",
-      "employeeId": "e1760949525960",
-      "date": "2025-10-20",
       "note": "",
       "logs": [
         {
-          "type": "MAN_PLAN_EDIT",
-          "at": "2025-10-20T08:44:49.702Z",
-          "text": "Kierownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-10-20T08:58:01.977Z"
+    },
+    {
+      "id": "e1760950667599_2025-10-01",
+      "employeeId": "e1760950667599",
+      "date": "2025-10-01",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
         },
         {
           "type": "EMP_TASK_EDIT",
-          "at": "2025-10-20T08:45:02.679Z",
-          "text": "Pracownik: Dodano zadanie [08:00–16:00] asda (Klient: sadda)"
+          "at": "2025-10-20T08:58:29.732Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] AA (Klient: AA)"
         },
         {
           "type": "EMP_SUBMIT",
-          "at": "2025-10-20T08:45:02.679Z",
+          "at": "2025-10-20T08:58:29.732Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-20T08:58:41.720Z",
+          "text": "Pracownik: Zmieniono zadanie [08:00–16:00] AA (Klient: AA): status Planowane → Zakończone"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-20T08:58:41.720Z",
           "text": "Pracownik: przesłał 1 zadań"
         }
       ],
       "shifts": [
         {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-10-20T08:58:01.977Z",
+      "submission": {
+        "items": [
+          {
+            "id": "t1760950704455",
+            "type": "Biuro",
+            "subject": "AA",
+            "client": "AA",
+            "project": "AA",
+            "start": "08:00",
+            "end": "16:00",
+            "workKind": "Zwykłe",
+            "status": "Zakończone"
+          }
+        ],
+        "status": "SUBMITTED",
+        "submittedAt": "2025-10-20T08:58:41.720Z",
+        "reportedMinutes": 480,
+        "dayStatus": "Rozliczone"
+      }
+    },
+    {
+      "id": "e1760950667599_2025-10-03",
+      "employeeId": "e1760950667599",
+      "date": "2025-10-03",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-10-20T08:58:01.977Z"
+    },
+    {
+      "id": "e1760950667599_2025-10-06",
+      "employeeId": "e1760950667599",
+      "date": "2025-10-06",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-10-20T08:58:01.977Z"
+    },
+    {
+      "id": "e1760950667599_2025-10-09",
+      "employeeId": "e1760950667599",
+      "date": "2025-10-09",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-10-20T08:58:01.977Z"
+    },
+    {
+      "id": "e1760950667599_2025-10-10",
+      "employeeId": "e1760950667599",
+      "date": "2025-10-10",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-10-20T08:58:01.977Z"
+    },
+    {
+      "id": "e1760950667599_2025-10-07",
+      "employeeId": "e1760950667599",
+      "date": "2025-10-07",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-10-20T08:58:01.977Z"
+    },
+    {
+      "id": "e1760950667599_2025-10-13",
+      "employeeId": "e1760950667599",
+      "date": "2025-10-13",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-10-20T08:58:01.977Z"
+    },
+    {
+      "id": "e1760950667599_2025-10-08",
+      "employeeId": "e1760950667599",
+      "date": "2025-10-08",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-10-20T08:58:01.977Z"
+    },
+    {
+      "id": "e1760950667599_2025-10-14",
+      "employeeId": "e1760950667599",
+      "date": "2025-10-14",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-10-20T08:58:01.977Z"
+    },
+    {
+      "id": "e1760950667599_2025-10-15",
+      "employeeId": "e1760950667599",
+      "date": "2025-10-15",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-10-20T08:58:01.977Z"
+    },
+    {
+      "id": "e1760950667599_2025-10-17",
+      "employeeId": "e1760950667599",
+      "date": "2025-10-17",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-10-20T08:58:01.977Z"
+    },
+    {
+      "id": "e1760950667599_2025-10-16",
+      "employeeId": "e1760950667599",
+      "date": "2025-10-16",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-10-20T08:58:01.977Z"
+    },
+    {
+      "id": "e1760950667599_2025-10-20",
+      "employeeId": "e1760950667599",
+      "date": "2025-10-20",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-20T08:58:12.395Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
+        }
+      ],
+      "shifts": [
+        {
           "mode": "ABSENCE",
           "start": "08:00",
           "end": "16:00"
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:44:49.702Z",
-      "submission": {
-        "items": [
-          {
-            "id": "t1760949897265",
-            "type": "Biuro",
-            "subject": "asda",
-            "client": "sadda",
-            "project": "dasda",
-            "start": "08:00",
-            "end": "16:00",
-            "workKind": "Zwykłe",
-            "status": "Planowane"
-          }
-        ],
-        "status": "SUBMITTED",
-        "submittedAt": "2025-10-20T08:45:02.679Z",
-        "reportedMinutes": 480,
-        "dayStatus": "W trakcie"
-      }
+      "sentAt": "2025-10-20T08:58:12.395Z"
     },
     {
-      "id": "e1760949525960_2025-10-21",
-      "employeeId": "e1760949525960",
+      "id": "e1760950667599_2025-10-21",
+      "employeeId": "e1760950667599",
       "date": "2025-10-21",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -301,14 +388,20 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
+      "sentAt": "2025-10-20T08:58:01.977Z"
     },
     {
-      "id": "e1760949525960_2025-10-22",
-      "employeeId": "e1760949525960",
+      "id": "e1760950667599_2025-10-22",
+      "employeeId": "e1760950667599",
       "date": "2025-10-22",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -317,30 +410,20 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
+      "sentAt": "2025-10-20T08:58:01.977Z"
     },
     {
-      "id": "e1760949525960_2025-10-07",
-      "employeeId": "e1760949525960",
-      "date": "2025-10-07",
-      "note": "",
-      "logs": [],
-      "shifts": [
-        {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
-        }
-      ],
-      "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
-    },
-    {
-      "id": "e1760949525960_2025-10-23",
-      "employeeId": "e1760949525960",
+      "id": "e1760950667599_2025-10-23",
+      "employeeId": "e1760950667599",
       "date": "2025-10-23",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -349,14 +432,20 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
+      "sentAt": "2025-10-20T08:58:01.977Z"
     },
     {
-      "id": "e1760949525960_2025-10-24",
-      "employeeId": "e1760949525960",
+      "id": "e1760950667599_2025-10-24",
+      "employeeId": "e1760950667599",
       "date": "2025-10-24",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -365,14 +454,20 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
+      "sentAt": "2025-10-20T08:58:01.977Z"
     },
     {
-      "id": "e1760949525960_2025-10-27",
-      "employeeId": "e1760949525960",
+      "id": "e1760950667599_2025-10-27",
+      "employeeId": "e1760950667599",
       "date": "2025-10-27",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -381,14 +476,20 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
+      "sentAt": "2025-10-20T08:58:01.977Z"
     },
     {
-      "id": "e1760949525960_2025-10-28",
-      "employeeId": "e1760949525960",
+      "id": "e1760950667599_2025-10-28",
+      "employeeId": "e1760950667599",
       "date": "2025-10-28",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -397,14 +498,20 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
+      "sentAt": "2025-10-20T08:58:01.977Z"
     },
     {
-      "id": "e1760949525960_2025-10-29",
-      "employeeId": "e1760949525960",
+      "id": "e1760950667599_2025-10-29",
+      "employeeId": "e1760950667599",
       "date": "2025-10-29",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -413,14 +520,20 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
+      "sentAt": "2025-10-20T08:58:01.977Z"
     },
     {
-      "id": "e1760949525960_2025-10-30",
-      "employeeId": "e1760949525960",
+      "id": "e1760950667599_2025-10-30",
+      "employeeId": "e1760950667599",
       "date": "2025-10-30",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -429,14 +542,20 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
+      "sentAt": "2025-10-20T08:58:01.977Z"
     },
     {
-      "id": "e1760949525960_2025-10-31",
-      "employeeId": "e1760949525960",
+      "id": "e1760950667599_2025-10-31",
+      "employeeId": "e1760950667599",
       "date": "2025-10-31",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-10-20T08:58:01.977Z",
+          "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        }
+      ],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -445,8 +564,17 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T08:38:52.045Z"
+      "sentAt": "2025-10-20T08:58:01.977Z"
     }
   ],
-  "monthlyLogs": []
+  "monthlyLogs": [
+    {
+      "id": "ml1760950682864",
+      "employeeId": "e1760950667599",
+      "ym": "2025-10",
+      "type": "AUTO_MONTH",
+      "at": "2025-10-20T08:58:01.977Z",
+      "text": "Kierownik: Zaplanowano miesiąc październik 2025"
+    }
+  ]
 }
