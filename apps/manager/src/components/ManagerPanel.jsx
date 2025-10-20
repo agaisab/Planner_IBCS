@@ -794,8 +794,7 @@ const selectedEmployeeId = selectedEmployee?.id;
       actorLabel: 'Kierownik',
       summaryText: summarizePlan(draftDay),
       editType: 'MAN_PLAN_EDIT',
-      summaryType: 'SENT',
-      includeSummaryWhenChanged: true
+      summaryType: 'SENT'
     });
 
     const payload = {
@@ -981,7 +980,16 @@ const selectedEmployeeId = selectedEmployee?.id;
         shifts: shiftsArr,
         sent: true,
         sentAt: nowIso,
-        logs: [...(base.logs || []), { type: 'SENT', at: nowIso, text: logText }]
+        logs: buildPlanLogs({
+          baseLogs: base.logs,
+          changeMessages: [],
+          now: nowIso,
+          actorLabel: 'Kierownik',
+          summaryText: logText,
+          editType: 'MAN_PLAN_EDIT',
+          summaryType: 'SENT',
+          includeSummaryWhenChanged: true
+        })
       };
       entries.push(entry);
     }
@@ -1450,14 +1458,13 @@ const selectedEmployeeId = selectedEmployee?.id;
                   <ul className="space-y-2 text-sm">
                     {logsList.map((log, idx) => {
                       const type = log.type || '';
-                      const IconComponent =
-                        type === 'SENT' || type === 'EMP_SUBMIT'
-                          ? Send
-                          : type === 'AUTO_MONTH'
-                          ? CalIcon
-                          : type === 'EMP_TASK_EDIT'
-                          ? Settings
-                          : Pencil;
+                      const IconComponent = (() => {
+                        if (type === 'SENT' || type === 'EMP_SUBMIT' || type === 'PLAN_SUMMARY') return Send;
+                        if (type === 'AUTO_MONTH') return CalIcon;
+                        if (type === 'EMP_TASK_EDIT') return Settings;
+                        if (type === 'TASK_SUBMIT') return Settings;
+                        return Pencil;
+                      })();
                       const who = type.startsWith('EMP_') ? 'Pracownik' : 'Kierownik';
                       const action = (() => {
                         switch (type) {
@@ -1472,6 +1479,10 @@ const selectedEmployeeId = selectedEmployee?.id;
                           case 'EMP_TASK_EDIT':
                             return 'Zmiany w zadaniach';
                           case 'EMP_SUBMIT':
+                            return 'Wysłano zadania';
+                          case 'PLAN_SUMMARY':
+                            return 'Podsumowanie planu';
+                          case 'TASK_SUBMIT':
                             return 'Wysłano zadania';
                           default:
                             return 'Aktualizacja';

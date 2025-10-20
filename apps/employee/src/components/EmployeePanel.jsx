@@ -1910,14 +1910,12 @@ Status: ${task.status || '-'}`;
                   <ul className="space-y-2 text-sm">
                     {logsList.map((log, idx) => {
                       const type = log.type || '';
-                      const IconComponent =
-                        type === 'EMP_SUBMIT' || type === 'SENT'
-                          ? Send
-                          : type === 'EMP_TASK_EDIT'
-                          ? Settings
-                          : type === 'AUTO_MONTH'
-                          ? CalIcon
-                          : Pencil;
+                      const IconComponent = (() => {
+                        if (type === 'EMP_SUBMIT' || type === 'SENT' || type === 'PLAN_SUMMARY') return Send;
+                        if (type === 'EMP_TASK_EDIT' || type === 'TASK_SUBMIT') return Settings;
+                        if (type === 'AUTO_MONTH') return CalIcon;
+                        return Pencil;
+                      })();
                       const who = type.startsWith('EMP_') ? 'Pracownik' : 'Kierownik';
                       const action = (() => {
                         switch (type) {
@@ -1931,6 +1929,10 @@ Status: ${task.status || '-'}`;
                             return 'Wysłano zadania';
                           case 'SENT':
                             return 'Wysłano plan';
+                          case 'PLAN_SUMMARY':
+                            return 'Podsumowanie planu';
+                          case 'TASK_SUBMIT':
+                            return 'Wysłano zadania';
                           case 'AUTO_MONTH':
                             return 'Planowanie';
                           default:
