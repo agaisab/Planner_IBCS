@@ -149,18 +149,7 @@
       "employeeId": "e1760090733222",
       "date": "2025-10-10",
       "note": "",
-      "logs": [
-        {
-          "type": "EMP_TASK_EDIT",
-          "at": "2025-10-10T11:01:39.458Z",
-          "text": "Pracownik: Dodano zadanie [08:00–16:00] sss (Klient: sss)"
-        },
-        {
-          "type": "EMP_SUBMIT",
-          "at": "2025-10-10T11:01:39.458Z",
-          "text": "Pracownik: przesłał 1 zadań"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -199,13 +188,13 @@
       "logs": [],
       "shifts": [
         {
-          "mode": "OFFICE",
+          "mode": "ABSENCE",
           "start": "08:00",
           "end": "16:00"
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-10T10:05:46.979Z"
+      "sentAt": "2025-10-20T07:49:26.140Z"
     },
     {
       "id": "e1760090733222_2025-10-14",
@@ -279,13 +268,18 @@
       "logs": [
         {
           "type": "MAN_PLAN_EDIT",
-          "at": "2025-10-20T07:38:53.199Z",
-          "text": "Kierownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
+          "at": "2025-10-20T07:50:06.068Z",
+          "text": "Kierownik: Zmieniono zakres 1: tryb Nieobecność → Biuro"
         },
         {
           "type": "SENT",
-          "at": "2025-10-20T07:38:53.199Z",
-          "text": "08:00–16:00 Nieobecność"
+          "at": "2025-10-20T07:50:06.068Z",
+          "text": "08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-20T07:50:16.741Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
         }
       ],
       "shifts": [
@@ -296,25 +290,14 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-20T07:38:53.199Z"
+      "sentAt": "2025-10-20T07:50:16.741Z"
     },
     {
       "id": "e1760090733222_2025-10-21",
       "employeeId": "e1760090733222",
       "date": "2025-10-21",
       "note": "",
-      "logs": [
-        {
-          "type": "EMP_PLAN_EDIT",
-          "at": "2025-10-20T07:40:01.974Z",
-          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
-        },
-        {
-          "type": "EMP_PLAN_MOD",
-          "at": "2025-10-20T07:40:01.974Z",
-          "text": "Pracownik: 08:00–16:00 Nieobecność"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "ABSENCE",
@@ -330,18 +313,7 @@
       "employeeId": "e1760090733222",
       "date": "2025-10-22",
       "note": "",
-      "logs": [
-        {
-          "type": "EMP_PLAN_EDIT",
-          "at": "2025-10-20T07:41:01.379Z",
-          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
-        },
-        {
-          "type": "EMP_PLAN_MOD",
-          "at": "2025-10-20T07:41:01.379Z",
-          "text": "Pracownik: 08:00–16:00 Nieobecność"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "ABSENCE",
@@ -357,18 +329,7 @@
       "employeeId": "e1760090733222",
       "date": "2025-10-23",
       "note": "",
-      "logs": [
-        {
-          "type": "EMP_PLAN_EDIT",
-          "at": "2025-10-20T07:41:46.259Z",
-          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Nieobecność"
-        },
-        {
-          "type": "EMP_PLAN_MOD",
-          "at": "2025-10-20T07:41:46.259Z",
-          "text": "Pracownik: 08:00–16:00 Nieobecność"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "ABSENCE",

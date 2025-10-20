@@ -944,7 +944,9 @@ export default function EmployeePanel() {
     changeMessages.forEach((message) => {
       logs.push({ type: 'EMP_PLAN_EDIT', at: now, text: `Pracownik: ${message}` });
     });
-    logs.push({ type: 'EMP_PLAN_MOD', at: now, text: `Pracownik: ${summarizePlan(draftDay)}` });
+    if (!changeMessages.length) {
+      logs.push({ type: 'EMP_PLAN_MOD', at: now, text: `Pracownik: ${summarizePlan(draftDay)}` });
+    }
 
     const payload = {
       ...nextPlanState,
@@ -1972,14 +1974,14 @@ Status: ${task.status || '-'}`;
               <div className="flex gap-1">
                 <button
                   onClick={() => setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1))}
-                  className={cls(BTN, 'px-2 py-1')}
+                  className="rounded-full border-2 border-slate-300 p-2 hover:bg-slate-50"
                   aria-label="Poprzedni miesiąc"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1))}
-                  className={cls(BTN, 'px-2 py-1')}
+                  className="rounded-full border-2 border-slate-300 p-2 hover:bg-slate-50"
                   aria-label="Następny miesiąc"
                 >
                   <ChevronRight className="w-4 h-4" />
