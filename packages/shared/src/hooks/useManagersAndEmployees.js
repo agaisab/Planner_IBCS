@@ -9,7 +9,7 @@ export const useManagersAndEmployees = (
 ) => {
   const [managers, setManagers] = useState([]);
   const [employees, setEmployees] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const timeoutRef = useRef(null);
   const refreshRef = useRef(async () => {});

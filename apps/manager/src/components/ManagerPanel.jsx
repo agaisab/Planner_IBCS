@@ -15,7 +15,8 @@ import {
   Printer,
   Settings,
   Download,
-  Menu
+  Menu,
+  Loader2
 } from 'lucide-react';
 import {
   cls,
@@ -535,8 +536,6 @@ export default function ManagerPanel() {
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [plansByDate, setPlansByDate] = useState({});
   const [monthlyLogs, setMonthlyLogs] = useState([]);
-  const [loadingInitial, setLoadingInitial] = useState(true);
-  const [loadingPlans, setLoadingPlans] = useState(false);
   const [error, setError] = useState(null);
 
   const today = useMemo(() => new Date(), []);
@@ -566,21 +565,22 @@ export default function ManagerPanel() {
 
   const [autoOpen, setAutoOpen] = useState(false);
   const [modalMonth, setModalMonth] = useState(() => `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 2).padStart(2, '0')}`);
+  const [autoPlanning, setAutoPlanning] = useState(false);
+  const wasAutoPlanning = useRef(false);
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [deletingEmployee, setDeletingEmployee] = useState(false);
+  const [deletingManager, setDeletingManager] = useState(false);
 
-const [reportsOpen, setReportsOpen] = useState(false);
-const [reportSelectedIds, setReportSelectedIds] = useState([]);
-const [reportMonth, setReportMonth] = useState(() => `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, '0')}`);
-const [reportDetailed, setReportDetailed] = useState(false);
-const [logsConfirmOpen, setLogsConfirmOpen] = useState(false);
-const [logsClearing, setLogsClearing] = useState(false);
-const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
-const actionsMenuRef = useRef(null);
+  const [reportsOpen, setReportsOpen] = useState(false);
+  const [reportSelectedIds, setReportSelectedIds] = useState([]);
+  const [reportMonth, setReportMonth] = useState(() => `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, '0')}`);
+  const [reportDetailed, setReportDetailed] = useState(false);
+  const [logsConfirmOpen, setLogsConfirmOpen] = useState(false);
+  const [logsClearing, setLogsClearing] = useState(false);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const actionsMenuRef = useRef(null);
 
 const selectedEmployeeId = selectedEmployee?.id;
-
-  useEffect(() => {
-    setLoadingInitial(loadingDirectory);
-  }, [loadingDirectory]);
 
   useEffect(() => {
     if (directoryError) setError(directoryError);
@@ -609,31 +609,39 @@ const selectedEmployeeId = selectedEmployee?.id;
 
   const dKey = ymd(selectedDate);
 
-  const {
-    plansByDate: hookPlansByDate,
-    logs: hookLogs,
-    loading: hookLoading,
-    error: hookError
-  } = useEmployeePlans(selectedEmployee?.id, {
-    fetchPlans: fetchPlansForEmployee,
-    fetchLogs: fetchMonthlyLogs
-  });
+const {
+  plansByDate: hookPlansByDate,
+  logs: hookLogs,
+  loading: hookLoading,
+  error: hookError,
+  refresh: refreshEmployeePlans
+} = useEmployeePlans(selectedEmployee?.id, {
+  fetchPlans: fetchPlansForEmployee,
+  fetchLogs: fetchMonthlyLogs,
+  enabled: !autoPlanning
+});
+
+useEffect(() => {
+  if (!autoPlanning && wasAutoPlanning.current) {
+    refreshEmployeePlans();
+  }
+  wasAutoPlanning.current = autoPlanning;
+}, [autoPlanning, refreshEmployeePlans]);
 
   useEffect(() => {
-    if (!selectedEmployee?.id) {
-      setPlansByDate({});
-      setMonthlyLogs([]);
-      setLoadingPlans(false);
-      return;
-    }
-    setPlansByDate((prev) => (deepEqual(prev, hookPlansByDate) ? prev : hookPlansByDate));
-    setMonthlyLogs((prev) => (deepEqual(prev, hookLogs) ? prev : hookLogs));
-    setLoadingPlans(hookLoading);
-    if (hookError) setError(hookError);
-    setReportSelectedIds((prev) =>
-      prev.length === 1 && prev[0] === selectedEmployee.id ? prev : [selectedEmployee.id]
-    );
-  }, [selectedEmployee?.id, hookPlansByDate, hookLogs, hookLoading, hookError]);
+  if (!selectedEmployee?.id) {
+    setPlansByDate({});
+    setMonthlyLogs([]);
+    return;
+  }
+  if (autoPlanning) return;
+  setPlansByDate((prev) => (deepEqual(prev, hookPlansByDate) ? prev : hookPlansByDate));
+  setMonthlyLogs((prev) => (deepEqual(prev, hookLogs) ? prev : hookLogs));
+  if (hookError) setError(hookError);
+  setReportSelectedIds((prev) =>
+    prev.length === 1 && prev[0] === selectedEmployee.id ? prev : [selectedEmployee.id]
+  );
+}, [selectedEmployee?.id, hookPlansByDate, hookLogs, hookLoading, hookError, autoPlanning]);
 
   useEffect(() => {
     let active = true;
@@ -770,7 +778,9 @@ const selectedEmployeeId = selectedEmployee?.id;
     });
 
   const sendPlan = async () => {
-    if (!selectedEmployee || !selectedEmployeeId || !canSendPlan) return;
+    if (!selectedEmployee || !selectedEmployeeId || !canSendPlan || savingPlan) return;
+    setSavingPlan(true);
+    setError(null);
     const now = new Date().toISOString();
     const planId = sentDay?.id || planIdFor(selectedEmployeeId, dKey);
     const base = sentDay
@@ -812,14 +822,21 @@ const selectedEmployeeId = selectedEmployee?.id;
       ...nextPlanState,
       logs
     };
-    await savePlan(payload);
-    setPlansByDate((prev) => {
-      const current = prev[dKey];
-      if (current && deepEqual(current, payload)) return prev;
-      return { ...prev, [dKey]: payload };
-    });
-    const nextDraft = { ...payload, dirty: false };
-    setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
+    try {
+      await savePlan(payload);
+      setPlansByDate((prev) => {
+        const current = prev[dKey];
+        if (current && deepEqual(current, payload)) return prev;
+        return { ...prev, [dKey]: payload };
+      });
+      const nextDraft = { ...payload, dirty: false };
+      setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
+      await refreshEmployeePlans();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingPlan(false);
+    }
   };
 
   const statusByDate = useMemo(() => {
@@ -891,13 +908,23 @@ const selectedEmployeeId = selectedEmployee?.id;
 
 
   const handleDeleteEmployee = async (employee) => {
-    const employeePlans = await fetchPlansForEmployee(employee.id);
-    await Promise.all(employeePlans.map((plan) => deletePlan(plan.id)));
-    await deleteMonthlyLogsForEmployee(employee.id);
-    await deleteEmployee(employee.id);
-    await refreshDirectory();
-    setPlansByDate({});
-    setMonthlyLogs([]);
+    setError(null);
+    try {
+      const employeePlans = await fetchPlansForEmployee(employee.id);
+      await Promise.all(employeePlans.map((plan) => deletePlan(plan.id)));
+      await deleteMonthlyLogsForEmployee(employee.id);
+      await deleteEmployee(employee.id);
+      const remaining = employees.filter((emp) => emp.id !== employee.id);
+      await refreshDirectory();
+      setPlansByDate({});
+      setMonthlyLogs([]);
+      const fallback = remaining.find((emp) => emp.managerId === selectedManager?.id) || null;
+      setSelectedEmployee((prev) => (prev?.id === employee.id ? fallback : prev));
+      if (!fallback) setManagerPlanCollapsed(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      throw err;
+    }
   };
 
   const clearLogs = async () => {
@@ -929,6 +956,7 @@ const selectedEmployeeId = selectedEmployee?.id;
   };
 
   const planForYearMonth = async (year, monthIndex) => {
+    setError(null);
     if (!selectedEmployee) return;
     const dim = new Date(year, monthIndex + 1, 0).getDate();
     const nowIso = new Date().toISOString();
@@ -958,9 +986,9 @@ const selectedEmployeeId = selectedEmployee?.id;
         shiftsArr = [{ mode: 'ABSENCE', start: '08:00', end: '16:00' }];
         logText = `Auto (${monthLabel}): Nieobecność`;
       }
-      const existing = plansByDate[key];
-      const base = existing
-        ? sanitizePlan(existing)
+      const existingRaw = plansByDate[key];
+      const base = existingRaw
+        ? sanitizePlan(existingRaw)
         : {
             id: planIdFor(selectedEmployee.id, key),
             employeeId: selectedEmployee.id,
@@ -968,7 +996,7 @@ const selectedEmployeeId = selectedEmployee?.id;
             note: '',
             logs: []
           };
-      const entry = {
+      const planPayload = {
         ...base,
         id: planIdFor(selectedEmployee.id, key),
         employeeId: selectedEmployee.id,
@@ -987,29 +1015,92 @@ const selectedEmployeeId = selectedEmployee?.id;
           includeSummaryWhenChanged: true
         })
       };
-      entries.push(entry);
+      entries.push({ plan: planPayload, existing: existingRaw ? sanitizePlan(existingRaw) : null });
     }
-    await Promise.all(entries.map((plan) => savePlan(plan)));
-    const ymKey = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
-    const logEntry = {
-      id: `ml${Date.now()}`,
-      employeeId: selectedEmployee.id,
-      ym: ymKey,
-      type: 'AUTO_MONTH',
-      at: nowIso,
-      text: `Kierownik: Zaplanowano miesiąc ${monthLabel}`
-    };
-    await createMonthlyLog(logEntry);
-    setMonthlyLogs((prev) => [...prev, logEntry]);
-    setPlansByDate((prev) => {
-      const next = { ...prev };
-      entries.forEach((plan) => {
-        next[plan.date] = plan;
+    const savedEntries = [];
+    const failedDates = [];
+    for (const entry of entries) {
+      const { plan, existing } = entry;
+      const current = existing ? sanitizePlan(existing) : null;
+      const normalizedPlan = sanitizePlan(plan);
+
+      if (current && deepEqual(current, normalizedPlan)) {
+        savedEntries.push(existing);
+        continue;
+      }
+
+      let attempts = 0;
+      let saved = null;
+      let lastError = null;
+      while (attempts < 3 && !saved) {
+        try {
+          saved = await savePlan(plan);
+        } catch (err) {
+          lastError = err;
+          attempts += 1;
+        }
+      }
+
+      if (saved) {
+        savedEntries.push(saved);
+      } else {
+        failedDates.push(plan.date);
+        if (lastError) setError(lastError instanceof Error ? lastError.message : String(lastError));
+      }
+    }
+
+    if (failedDates.length) {
+      for (const entry of entries) {
+        const { plan, existing } = entry;
+        if (failedDates.includes(plan.date)) continue;
+        if (!existing) {
+          try {
+            await deletePlan(plan.id);
+          } catch (err) {
+            setError((prev) => prev || (err instanceof Error ? err.message : String(err)));
+          }
+        } else {
+          try {
+            await savePlan(existing);
+          } catch (err) {
+            setError((prev) => prev || (err instanceof Error ? err.message : String(err)));
+          }
+        }
+      }
+    }
+
+    if (savedEntries.length && failedDates.length === 0) {
+      const ymKey = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+      const logEntry = {
+        id: `ml${Date.now()}`,
+        employeeId: selectedEmployee.id,
+        ym: ymKey,
+        type: 'AUTO_MONTH',
+        at: nowIso,
+        text: `Kierownik: Zaplanowano miesiąc ${monthLabel}`
+      };
+      await createMonthlyLog(logEntry);
+      setMonthlyLogs((prev) => [...prev, logEntry]);
+      setPlansByDate((prev) => {
+        const next = { ...prev };
+        savedEntries.forEach((plan) => {
+          next[plan.date] = plan;
+        });
+        return next;
       });
-      return next;
-    });
+    }
+
+    if (failedDates.length) {
+      setError((prevErr) => {
+        const base = `Nie udało się zaplanować dni: ${failedDates.join(', ')}`;
+        return prevErr ? `${prevErr}. ${base}` : base;
+      });
+      return false;
+    }
+
     setSelectedDate(new Date(year, monthIndex, 1));
     setMonthCursor(new Date(year, monthIndex, 1));
+    return true;
   };
 
   const buildReportDocument = async () => {
@@ -1172,6 +1263,14 @@ const selectedEmployeeId = selectedEmployee?.id;
     );
   }
 
+  if (loadingDirectory && managers.length === 0) {
+    return (
+      <div className="flex h-screen items-center justify-center text-slate-500 text-sm">
+        <Loader2 className="w-5 h-5 animate-spin" /> Wczytywanie danych...
+      </div>
+    );
+  }
+
   return (
     <MotionDiv initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto max-w-7xl p-6 space-y-6 text-slate-800">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -1226,10 +1325,6 @@ const selectedEmployeeId = selectedEmployee?.id;
           </button>
         </div>
       </header>
-
-      {(loadingInitial || loadingPlans) && (
-        <div className="rounded-xl border-2 border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600">Ładowanie danych...</div>
-      )}
 
       <div className={cls('grid gap-6', calendarOpen ? 'lg:grid-cols-[260px_1fr_360px]' : 'lg:grid-cols-[260px_1fr]')}>
         <aside className={cls(CARD, 'h-fit sticky top-6')}>
@@ -1419,7 +1514,12 @@ const selectedEmployeeId = selectedEmployee?.id;
               </div>
             )}
 
-            <div className="mt-4 pt-3 border-t flex items-center justify-between gap-2">
+            <div className="relative mt-4 pt-3 border-t flex items-center justify-between gap-2">
+              {(hookLoading && !autoPlanning) && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/70 backdrop-blur rounded-xl z-10">
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
+                </div>
+              )}
               <div className="text-xs text-slate-500">Łącznie: {minutesToHHmm(plannedMinutes)}</div>
               <div className="flex items-center gap-2">
                 <button
@@ -1430,8 +1530,20 @@ const selectedEmployeeId = selectedEmployee?.id;
                 >
                   <Plus className="w-4 h-4" />
                 </button>
-                <button onClick={sendPlan} className={BTN} disabled={!canSendPlan}>
-                  <Send className="w-4 h-4 text-emerald-600" /> Wyślij
+                <button
+                  onClick={sendPlan}
+                  className={BTN}
+                  disabled={!canSendPlan || savingPlan}
+                >
+                  {savingPlan ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Zapisywanie...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4 text-emerald-600" /> Wyślij
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -1683,14 +1795,30 @@ const selectedEmployeeId = selectedEmployee?.id;
               Anuluj
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
                 const [yy, mm] = modalMonth.split('-').map(Number);
-                if (yy && mm) planForYearMonth(yy, mm - 1);
+                let success = true;
+                if (yy && mm) {
+                  setAutoPlanning(true);
+                  try {
+                    success = await planForYearMonth(yy, mm - 1);
+                  } finally {
+                    setAutoPlanning(false);
+                  }
+                  if (!success) return;
+                }
                 setAutoOpen(false);
               }}
+              disabled={autoPlanning}
               className="rounded-xl px-3 py-2 text-sm text-white bg-sky-600 hover:bg-sky-700"
             >
-              OK – zaplanuj
+              {autoPlanning ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Planowanie...
+                </span>
+              ) : (
+                'OK – zaplanuj'
+              )}
             </button>
           </>
         }
@@ -1806,14 +1934,28 @@ const selectedEmployeeId = selectedEmployee?.id;
             </button>
             <button
               onClick={async () => {
-                if (!empConfirmTarget) return;
-                await handleDeleteEmployee(empConfirmTarget);
-                setEmpConfirmTarget(null);
-                setEmpConfirmOpen(false);
+                if (!empConfirmTarget || deletingEmployee) return;
+                setDeletingEmployee(true);
+                try {
+                  await handleDeleteEmployee(empConfirmTarget);
+                  setEmpConfirmTarget(null);
+                  setEmpConfirmOpen(false);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setDeletingEmployee(false);
+                }
               }}
-              className="rounded-xl px-3 py-2 text-sm text-white bg-rose-600 hover:bg-rose-700"
+              className="rounded-xl px-3 py-2 text-sm text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={deletingEmployee}
             >
-              Usuń
+              {deletingEmployee ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Usuwanie...
+                </span>
+              ) : (
+                'Usuń'
+              )}
             </button>
           </>
         }
@@ -1843,7 +1985,7 @@ const selectedEmployeeId = selectedEmployee?.id;
             </button>
             <button
               onClick={async () => {
-                if (!manConfirmTarget || managers.length <= 1) {
+                if (!manConfirmTarget || managers.length <= 1 || deletingManager) {
                   setManConfirmOpen(false);
                   setManConfirmTarget(null);
                   return;
@@ -1851,23 +1993,38 @@ const selectedEmployeeId = selectedEmployee?.id;
                 const targetId = manConfirmTarget.id;
                 const fallback = managers.find((mgr) => mgr.id !== targetId);
                 const affectedEmployees = employees.filter((emp) => emp.managerId === targetId);
-                await Promise.all(
-                  affectedEmployees.map((emp) => updateEmployee(emp.id, { managerId: fallback?.id || emp.managerId }))
-                );
-                await deleteManager(targetId);
-                await refreshDirectory();
-                setSelectedManager(fallback || null);
-                setSelectedEmployee(null);
-                setManConfirmTarget(null);
-                setManConfirmOpen(false);
+                setDeletingManager(true);
+                try {
+                  await Promise.all(
+                    affectedEmployees.map((emp) => updateEmployee(emp.id, { managerId: fallback?.id || emp.managerId }))
+                  );
+                  await deleteManager(targetId);
+                  await refreshDirectory();
+                  setSelectedManager(fallback || null);
+                  setSelectedEmployee(null);
+                  setManConfirmTarget(null);
+                  setManConfirmOpen(false);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setDeletingManager(false);
+                }
               }}
               className={cls(
                 'rounded-xl px-3 py-2 text-sm text-white',
-                managers.length <= 1 ? 'bg-slate-300 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-700'
+                managers.length <= 1 || deletingManager
+                  ? 'bg-slate-300 cursor-not-allowed'
+                  : 'bg-rose-600 hover:bg-rose-700'
               )}
-              disabled={managers.length <= 1}
+              disabled={managers.length <= 1 || deletingManager}
             >
-              Usuń
+              {deletingManager ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Usuwanie...
+                </span>
+              ) : (
+                'Usuń'
+              )}
             </button>
           </>
         }

@@ -16,7 +16,8 @@ import {
   ChevronDown,
   Plus,
   LogIn,
-  Trash2
+  Trash2,
+  Loader2
 } from 'lucide-react';
 import {
   cls,
@@ -677,6 +678,8 @@ export default function EmployeePanel() {
   const [outlookMenu, setOutlookMenu] = useState({ task: null, anchor: null });
   const [splitPrompt, setSplitPrompt] = useState(null);
   const [splitProcessing, setSplitProcessing] = useState(false);
+  const [sendingPlan, setSendingPlan] = useState(false);
+  const [sendingTasks, setSendingTasks] = useState(false);
 
   useEffect(() => {
     setLoadingInitial(loadingDirectory);
@@ -707,7 +710,13 @@ export default function EmployeePanel() {
     }
   }, [selectedManager, employees, selectedEmployee]);
 
-  const { plansByDate: hookPlansByDate, logs: hookLogs, loading: hookLoading, error: hookError } = useEmployeePlans(
+  const {
+    plansByDate: hookPlansByDate,
+    logs: hookLogs,
+    loading: hookLoading,
+    error: hookError,
+    refresh: refreshEmployeePlans
+  } = useEmployeePlans(
     selectedEmployee?.id,
     {
       fetchPlans: fetchPlansForEmployee,
@@ -908,7 +917,9 @@ export default function EmployeePanel() {
     });
 
   const sendPlanToManager = async () => {
-    if (!selectedEmployee) return;
+    if (!selectedEmployee || sendingPlan) return;
+    setSendingPlan(true);
+    setError(null);
     const now = new Date().toISOString();
     const planId = sentDay?.id || planIdFor(selectedEmployee.id, dKey);
     const base = sentDay
@@ -949,14 +960,21 @@ export default function EmployeePanel() {
       ...nextPlanState,
       logs
     };
-    await savePlan(payload);
-    setPlansByDate((prev) => {
-      const current = prev[dKey];
-      if (current && deepEqual(current, payload)) return prev;
-      return { ...prev, [dKey]: payload };
-    });
-    const nextDraft = { ...payload, dirty: false };
-    setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
+    try {
+      await savePlan(payload);
+      setPlansByDate((prev) => {
+        const current = prev[dKey];
+        if (current && deepEqual(current, payload)) return prev;
+        return { ...prev, [dKey]: payload };
+      });
+      const nextDraft = { ...payload, dirty: false };
+      setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
+      await refreshEmployeePlans();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSendingPlan(false);
+    }
   };
 
   const submitted = sentDay?.submission;
@@ -970,6 +988,7 @@ export default function EmployeePanel() {
     : 'W trakcie';
 
   const taskItems = useMemo(() => subDraft.items || [], [subDraft.items]);
+  const canSendTasks = taskItems.length > 0;
   useEffect(() => {
     if (!taskItems.length) {
       setTaskActionsMenu({ id: null, rect: null });
@@ -1583,7 +1602,9 @@ Status: ${task.status || '-'}`;
   );
 
   const sendTasksToManager = async () => {
-    if (!selectedEmployee) return;
+    if (!selectedEmployee || sendingTasks) return;
+    setSendingTasks(true);
+    setError(null);
     const now = new Date().toISOString();
     const items = taskItems.map((item) => ({
       ...item,
@@ -1643,15 +1664,22 @@ Status: ${task.status || '-'}`;
       ...nextPlanState,
       logs
     };
-    await savePlan(payload);
-    setPlansByDate((prev) => {
-      const current = prev[dKey];
-      if (current && deepEqual(current, payload)) return prev;
-      return { ...prev, [dKey]: payload };
-    });
-    const nextDraft = { ...payload, dirty: false };
-    setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
-    setSubDraft({ ...submission });
+    try {
+      await savePlan(payload);
+      setPlansByDate((prev) => {
+        const current = prev[dKey];
+        if (current && deepEqual(current, payload)) return prev;
+        return { ...prev, [dKey]: payload };
+      });
+      const nextDraft = { ...payload, dirty: false };
+      setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
+      setSubDraft({ ...submission });
+      await refreshEmployeePlans();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSendingTasks(false);
+    }
   };
 
   const statusByDate = useMemo(() => {
@@ -1709,6 +1737,14 @@ Status: ${task.status || '-'}`;
     );
   }
 
+  if (loadingDirectory && managers.length === 0) {
+    return (
+      <div className="flex h-screen items-center justify-center text-slate-500 text-sm">
+        <Loader2 className="w-5 h-5 animate-spin" /> Wczytywanie danych...
+      </div>
+    );
+  }
+
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto max-w-7xl p-6 space-y-6 text-slate-800">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -1727,12 +1763,6 @@ Status: ${task.status || '-'}`;
           </button>
         </div>
       </header>
-
-      {(loadingInitial || loadingPlans) && (
-        <div className="rounded-xl border-2 border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-          Ładowanie danych...
-        </div>
-      )}
 
       <div className={cls('grid gap-6', calendarOpen ? 'lg:grid-cols-[260px_1fr_360px]' : 'lg:grid-cols-[260px_1fr]')}>
         <aside className={cls(CARD, 'h-fit sticky top-6')}>
@@ -1893,7 +1923,12 @@ Status: ${task.status || '-'}`;
                 </div>
               )}
 
-              <div className="mt-4 pt-3 border-t flex items-center justify-between gap-2">
+              <div className="relative mt-4 pt-3 border-t flex items-center justify-between gap-2">
+                {loadingPlans && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/70 backdrop-blur rounded-xl z-10">
+                    <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
+                  </div>
+                )}
                 <div className="text-xs text-slate-500">Łącznie: {minutesToHHmm(planned)}</div>
                 <div className="flex items-center gap-2">
                   <button
@@ -1904,8 +1939,16 @@ Status: ${task.status || '-'}`;
                   >
                     <Plus className="w-4 h-4" />
                   </button>
-                  <button onClick={sendPlanToManager} className={BTN}>
-                    <Send className="w-4 h-4 text-emerald-600" /> Wyślij
+                  <button onClick={sendPlanToManager} className={BTN} disabled={sendingPlan}>
+                    {sendingPlan ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" /> Wysyłanie...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4 text-emerald-600" /> Wyślij
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -2112,8 +2155,23 @@ Status: ${task.status || '-'}`;
             <button onClick={addTask} className={BTN}>
               <Plus className="w-4 h-4" /> Dodaj zadanie
             </button>
-            <button onClick={sendTasksToManager} className={BTN}>
-              <Send className="w-4 h-4 text-emerald-600" /> Wyślij zadania
+            <button
+              onClick={sendTasksToManager}
+              className={cls(
+                BTN,
+                (!canSendTasks || sendingTasks) && 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-100'
+              )}
+              disabled={!canSendTasks || sendingTasks}
+            >
+              {sendingTasks ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" /> Wysyłanie...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 text-emerald-600" /> Wyślij zadania
+                </>
+              )}
             </button>
           </div>
         </div>

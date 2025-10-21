@@ -3,9 +3,13 @@ import { deepEqual } from '../utils.js';
 
 const DEFAULT_POLL = 4000;
 
-export const useEmployeePlans = (employeeId, { fetchPlans, fetchLogs, pollInterval = DEFAULT_POLL } = {}) => {
+export const useEmployeePlans = (
+  employeeId,
+  { fetchPlans, fetchLogs, pollInterval = DEFAULT_POLL, enabled = true } = {}
+) => {
   const [data, setData] = useState({ plansByDate: {}, logs: [], loading: false, error: null });
   const timeoutRef = useRef(null);
+  const refreshRef = useRef(async () => {});
 
   useEffect(() => {
     if (!employeeId || !fetchPlans || !fetchLogs) {
@@ -15,6 +19,18 @@ export const useEmployeePlans = (employeeId, { fetchPlans, fetchLogs, pollInterv
           clearTimeout(timeoutRef.current);
           timeoutRef.current = null;
         }
+        refreshRef.current = async () => {};
+      };
+    }
+
+    if (!enabled) {
+      setData((prev) => (prev.loading ? { ...prev, loading: false } : prev));
+      return () => {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+        refreshRef.current = async () => {};
       };
     }
 
@@ -63,6 +79,7 @@ export const useEmployeePlans = (employeeId, { fetchPlans, fetchLogs, pollInterv
     };
 
     fetchData(true);
+    refreshRef.current = () => fetchData(true);
 
     return () => {
       cancelled = true;
@@ -70,8 +87,11 @@ export const useEmployeePlans = (employeeId, { fetchPlans, fetchLogs, pollInterv
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
+      refreshRef.current = async () => {};
     };
-  }, [employeeId, fetchPlans, fetchLogs, pollInterval]);
+  }, [employeeId, fetchPlans, fetchLogs, pollInterval, enabled]);
 
-  return data;
+  const refresh = async () => refreshRef.current();
+
+  return { ...data, refresh };
 };
