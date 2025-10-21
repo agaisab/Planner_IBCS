@@ -181,32 +181,44 @@
       "employeeId": "e1761029250324",
       "date": "2025-10-15",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-21T06:55:32.232Z",
+          "text": "Pracownik: Zmieniono zakres 1: czas 08:00–16:00 → —–—, tryb Biuro → Nieobecność"
+        }
+      ],
       "shifts": [
         {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
+          "mode": "ABSENCE",
+          "start": "",
+          "end": ""
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-21T06:47:36.578Z"
+      "sentAt": "2025-10-21T06:55:32.232Z"
     },
     {
       "id": "e1761029250324_2025-10-16",
       "employeeId": "e1761029250324",
       "date": "2025-10-16",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "MAN_PLAN_EDIT",
+          "at": "2025-10-21T07:21:57.378Z",
+          "text": "Kierownik: Zmieniono zakres 1: czas 08:00–16:00 → —–—, tryb Biuro → Nieobecność"
+        }
+      ],
       "shifts": [
         {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
+          "mode": "ABSENCE",
+          "start": "",
+          "end": ""
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-21T06:47:36.578Z"
+      "sentAt": "2025-10-21T07:21:57.378Z"
     },
     {
       "id": "e1761029250324_2025-10-17",
@@ -261,7 +273,18 @@
       "employeeId": "e1761029250324",
       "date": "2025-10-22",
       "note": "",
-      "logs": [],
+      "logs": [
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-21T06:58:59.556Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] asd (Klient: das)"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-21T06:58:59.556Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        }
+      ],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -270,7 +293,27 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-21T06:47:36.578Z"
+      "sentAt": "2025-10-21T06:47:36.578Z",
+      "submission": {
+        "items": [
+          {
+            "id": "plan-1761029933429-0",
+            "type": "Biuro",
+            "subject": "asd",
+            "client": "das",
+            "project": "asd",
+            "start": "08:00",
+            "end": "16:00",
+            "workKind": "Zwykłe",
+            "status": "Zakończone",
+            "locked": false
+          }
+        ],
+        "status": "SUBMITTED",
+        "submittedAt": "2025-10-21T06:58:59.556Z",
+        "reportedMinutes": 480,
+        "dayStatus": "Rozliczone"
+      }
     },
     {
       "id": "e1761029250324_2025-10-23",
@@ -385,5 +428,14 @@
       "sentAt": "2025-10-21T06:47:36.578Z"
     }
   ],
-  "monthlyLogs": []
+  "monthlyLogs": [
+    {
+      "id": "ml1761033092391",
+      "employeeId": "e1761029250324",
+      "ym": "2025-11",
+      "type": "AUTO_MONTH",
+      "at": "2025-10-21T07:51:27.971Z",
+      "text": "Kierownik: Zaplanowano miesiąc listopad 2025"
+    }
+  ]
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Calendar as CalIcon,
@@ -16,7 +16,8 @@ import {
   Settings,
   Download,
   Menu,
-  Loader2
+  Loader2,
+  RotateCcw
 } from 'lucide-react';
 import {
   cls,
@@ -563,13 +564,15 @@ export default function ManagerPanel() {
   const [manConfirmOpen, setManConfirmOpen] = useState(false);
   const [manConfirmTarget, setManConfirmTarget] = useState(null);
 
-  const [autoOpen, setAutoOpen] = useState(false);
-  const [modalMonth, setModalMonth] = useState(() => `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 2).padStart(2, '0')}`);
-  const [autoPlanning, setAutoPlanning] = useState(false);
-  const wasAutoPlanning = useRef(false);
-  const [savingPlan, setSavingPlan] = useState(false);
-  const [deletingEmployee, setDeletingEmployee] = useState(false);
-  const [deletingManager, setDeletingManager] = useState(false);
+const [autoOpen, setAutoOpen] = useState(false);
+const [modalMonth, setModalMonth] = useState(() => `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 2).padStart(2, '0')}`);
+const [autoPlanning, setAutoPlanning] = useState(false);
+const wasAutoPlanning = useRef(false);
+const [autoPlanSnapshot, setAutoPlanSnapshot] = useState(null);
+const [undoingAutoPlan, setUndoingAutoPlan] = useState(false);
+const [savingPlan, setSavingPlan] = useState(false);
+const [deletingEmployee, setDeletingEmployee] = useState(false);
+const [deletingManager, setDeletingManager] = useState(false);
 
   const [reportsOpen, setReportsOpen] = useState(false);
   const [reportSelectedIds, setReportSelectedIds] = useState([]);
@@ -628,6 +631,43 @@ useEffect(() => {
   wasAutoPlanning.current = autoPlanning;
 }, [autoPlanning, refreshEmployeePlans]);
 
+const undoAutoPlan = useCallback(async () => {
+  if (
+    !autoPlanSnapshot ||
+    autoPlanSnapshot.employeeId !== selectedEmployee?.id ||
+    undoingAutoPlan
+  )
+    return false;
+  setUndoingAutoPlan(true);
+  setError(null);
+  let success = false;
+  try {
+    for (const entry of autoPlanSnapshot.entries) {
+      if (entry.plan) {
+        await savePlan(entry.plan);
+      } else {
+        await deletePlan(planIdFor(selectedEmployee.id, entry.date));
+      }
+    }
+    setPlansByDate((prev) => {
+      const next = { ...prev };
+      autoPlanSnapshot.entries.forEach((entry) => {
+        if (entry.plan) next[entry.date] = entry.plan;
+        else delete next[entry.date];
+      });
+      return next;
+    });
+    setAutoPlanSnapshot(null);
+    await refreshEmployeePlans();
+    success = true;
+  } catch (err) {
+    setError(err instanceof Error ? err.message : String(err));
+  } finally {
+    setUndoingAutoPlan(false);
+  }
+  return success;
+}, [autoPlanSnapshot, selectedEmployee?.id, undoingAutoPlan, refreshEmployeePlans]);
+
   useEffect(() => {
   if (!selectedEmployee?.id) {
     setPlansByDate({});
@@ -678,10 +718,10 @@ useEffect(() => {
   }, [monthCursor]);
 
   const sentDay = selectedEmployee ? plansByDate[dKey] || null : null;
-  const createDraft = (plan) =>
-    plan
-      ? { ...plan, dirty: false }
-      : { id: null, shifts: [], note: '', dirty: false };
+const createDraft = (plan) =>
+  plan
+    ? { ...plan, dirty: false }
+    : { id: null, shifts: [], note: '', dirty: false };
 
   const [draftDay, setDraftDay] = useState(createDraft(sentDay));
   useEffect(() => {
@@ -904,6 +944,21 @@ useEffect(() => {
     const combined = [...monthlyLogsSel, ...(sentDay?.logs || [])];
     return combined.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
   }, [monthlyLogsSel, sentDay?.logs]);
+  const canUndoAutoPlan =
+    !!(
+      autoPlanSnapshot &&
+      autoPlanSnapshot.employeeId === selectedEmployee?.id &&
+      (autoPlanSnapshot.entries || []).length
+    );
+  let undoMonthLabel = null;
+  if (canUndoAutoPlan && autoPlanSnapshot?.monthKey) {
+    const [yyStr, mmStr] = autoPlanSnapshot.monthKey.split('-');
+    const yy = Number(yyStr);
+    const mm = Number(mmStr);
+    if (Number.isFinite(yy) && Number.isFinite(mm)) {
+      undoMonthLabel = plMonth(new Date(yy, mm - 1, 1));
+    }
+  }
   const hasLogs = logsList.length > 0;
 
 
@@ -961,6 +1016,7 @@ useEffect(() => {
     const dim = new Date(year, monthIndex + 1, 0).getDate();
     const nowIso = new Date().toISOString();
     const entries = [];
+    const snapshotEntries = [];
     const monthLabel = new Date(year, monthIndex, 1).toLocaleDateString('pl-PL', {
       month: 'long',
       year: 'numeric'
@@ -987,8 +1043,12 @@ useEffect(() => {
         logText = `Auto (${monthLabel}): Nieobecność`;
       }
       const existingRaw = plansByDate[key];
-      const base = existingRaw
-        ? sanitizePlan(existingRaw)
+      snapshotEntries.push({
+        date: key,
+        plan: existingRaw ? sanitizePlan(existingRaw) : null
+      });
+     const base = existingRaw
+       ? sanitizePlan(existingRaw)
         : {
             id: planIdFor(selectedEmployee.id, key),
             employeeId: selectedEmployee.id,
@@ -1100,6 +1160,11 @@ useEffect(() => {
 
     setSelectedDate(new Date(year, monthIndex, 1));
     setMonthCursor(new Date(year, monthIndex, 1));
+    setAutoPlanSnapshot({
+      employeeId: selectedEmployee.id,
+      monthKey: `${year}-${String(monthIndex + 1).padStart(2, '0')}`,
+      entries: snapshotEntries
+    });
     return true;
   };
 
@@ -1305,7 +1370,7 @@ useEffect(() => {
                   }}
                   className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-slate-50"
                 >
-                  <CalendarDays className="w-4 h-4" /> Plan
+                  <CalendarDays className="w-4 h-4" /> Planowanie
                 </button>
                 <button
                   type="button"
@@ -1794,6 +1859,26 @@ useEffect(() => {
             <button onClick={() => setAutoOpen(false)} className={BTN}>
               Anuluj
             </button>
+            {canUndoAutoPlan && (
+              <button
+                onClick={async () => {
+                  const success = await undoAutoPlan();
+                  if (success) setAutoOpen(false);
+                }}
+                className={BTN}
+                disabled={undoingAutoPlan || autoPlanning}
+              >
+                {undoingAutoPlan ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" /> Cofanie...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-4 h-4" /> Cofnij planowanie
+                  </>
+                )}
+              </button>
+            )}
             <button
               onClick={async () => {
                 const [yy, mm] = modalMonth.split('-').map(Number);
@@ -1809,7 +1894,7 @@ useEffect(() => {
                 }
                 setAutoOpen(false);
               }}
-              disabled={autoPlanning}
+              disabled={autoPlanning || undoingAutoPlan}
               className="rounded-xl px-3 py-2 text-sm text-white bg-sky-600 hover:bg-sky-700"
             >
               {autoPlanning ? (
@@ -1836,6 +1921,11 @@ useEffect(() => {
             className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2"
           />
         </label>
+        {canUndoAutoPlan && (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            Ostatnie automatyczne planowanie dla miesiąca {undoMonthLabel || autoPlanSnapshot.monthKey} można cofnąć przyciskiem \"Cofnij planowanie\".
+          </div>
+        )}
       </Modal>
 
       <Modal
