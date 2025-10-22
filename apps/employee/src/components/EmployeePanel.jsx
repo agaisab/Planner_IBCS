@@ -863,6 +863,179 @@ export default function EmployeePanel() {
   const spanEnd = shifts.map((s) => s.end).filter(Boolean).sort().slice(-1)[0];
   const dayStatus = draftDay.dirty ? 'EDITED' : sentDay ? 'SENT' : 'NONE';
   const wkOf = (task) => (ABSENCE_TASK_TYPES.includes(task.type) ? 'Zwykłe' : computeWorkKindFor(task, selectedDate, shifts));
+  const planSignature = useMemo(
+    () =>
+      JSON.stringify(
+        (shifts || []).map((shift) => ({
+          mode: shift?.mode || 'OFFICE',
+          start: shift?.start || '',
+          end: shift?.end || ''
+        }))
+      ),
+    [shifts]
+  );
+  const planContextRef = useRef({ signature: null, employeeId: null, dateKey: null });
+  const reconcileTasksAfterPlanChange = useCallback(
+    (items) => {
+      const planStartMinutesSpan = spanStart ? toMinutes(spanStart) : null;
+      const planEndMinutesSpan = spanEnd ? toMinutes(spanEnd) : null;
+      const NIGHT_BOUNDARY = 22 * 60;
+      const NIGHT_EARLY_BOUNDARY = 6 * 60;
+
+      let changed = false;
+      const messages = [];
+      let sequence = Date.now();
+
+      const computeKind = (task) =>
+        ABSENCE_TASK_TYPES.includes(task.type) ? 'Zwykłe' : computeWorkKindFor(task, selectedDate, shifts);
+      const formatRange = (start, end) => `${start || '—'}–${end || '—'}`;
+
+      const segmented = [];
+
+      (items || []).forEach((task) => {
+        if (!task) return;
+        if (!task.start || !task.end) {
+          const wk = computeKind(task);
+          if ((task.workKind || '') !== wk) {
+            changed = true;
+            segmented.push({ ...task, workKind: wk });
+          } else {
+            segmented.push(task);
+          }
+          return;
+        }
+
+        const startMinutes = toMinutes(task.start);
+        const endMinutes = toMinutes(task.end);
+        const hasValidSpan =
+          Number.isFinite(startMinutes) && Number.isFinite(endMinutes) && startMinutes < endMinutes;
+
+        if (!hasValidSpan) {
+          const wk = computeKind(task);
+          if ((task.workKind || '') !== wk) {
+            changed = true;
+            segmented.push({ ...task, workKind: wk });
+          } else {
+            segmented.push(task);
+          }
+          return;
+        }
+
+        const boundarySet = new Set();
+        if (
+          Number.isFinite(planStartMinutesSpan) &&
+          startMinutes < planStartMinutesSpan &&
+          endMinutes > planStartMinutesSpan
+        ) {
+          boundarySet.add(planStartMinutesSpan);
+        }
+        if (
+          Number.isFinite(planEndMinutesSpan) &&
+          startMinutes < planEndMinutesSpan &&
+          endMinutes > planEndMinutesSpan
+        ) {
+          boundarySet.add(planEndMinutesSpan);
+        }
+        if (startMinutes < NIGHT_EARLY_BOUNDARY && endMinutes > NIGHT_EARLY_BOUNDARY) {
+          boundarySet.add(NIGHT_EARLY_BOUNDARY);
+        }
+        if (startMinutes < NIGHT_BOUNDARY && endMinutes > NIGHT_BOUNDARY) {
+          boundarySet.add(NIGHT_BOUNDARY);
+        }
+
+        const sortedBoundaries = Array.from(boundarySet).sort((a, b) => a - b);
+        let segmentStart = startMinutes;
+        const rawSegments = [];
+
+        sortedBoundaries.forEach((boundary) => {
+          if (boundary <= segmentStart || boundary >= endMinutes) return;
+          rawSegments.push([segmentStart, boundary]);
+          segmentStart = boundary;
+        });
+        rawSegments.push([segmentStart, endMinutes]);
+
+        const segmentTasks = rawSegments
+          .filter(([segStart, segEnd]) => segEnd > segStart)
+          .map(([segStart, segEnd], idx) => {
+            const startLabel = minutesToHHmm(segStart);
+            const endLabel = minutesToHHmm(segEnd);
+            const baseTask = {
+              ...task,
+              id: idx === 0 ? task.id : `t${sequence + idx}`,
+              start: startLabel,
+              end: endLabel,
+              locked: idx === 0 ? task.locked : false
+            };
+            const wk = computeKind(baseTask);
+            return { ...baseTask, workKind: wk };
+          });
+
+        if (segmentTasks.length > 1) {
+          changed = true;
+          const summary = segmentTasks
+            .map((seg) => `• ${formatRange(seg.start, seg.end)} (${seg.workKind})`)
+            .join('\n');
+          messages.push(
+            `Zadanie ${formatRange(task.start, task.end)} dostosowano do nowego planu:\n${summary}`
+          );
+        } else if (segmentTasks[0]) {
+          const seg = segmentTasks[0];
+          if (
+            seg.start !== task.start ||
+            seg.end !== task.end ||
+            (task.workKind || '') !== seg.workKind
+          ) {
+            changed = true;
+          }
+        }
+
+        sequence += segmentTasks.length;
+        segmented.push(...segmentTasks);
+      });
+
+      const merged = [];
+      segmented.forEach((item) => {
+        if (!item) return;
+        const last = merged[merged.length - 1];
+        if (
+          last &&
+          last.end === item.start &&
+          (last.type || '') === (item.type || '') &&
+          (last.subject || '') === (item.subject || '') &&
+          (last.client || '') === (item.client || '') &&
+          (last.project || '') === (item.project || '') &&
+          (last.status || '') === (item.status || '') &&
+          !!last.locked === !!item.locked &&
+          (last.workKind || '') === (item.workKind || '')
+        ) {
+          const mergedTask = {
+            ...last,
+            end: item.end
+          };
+          mergedTask.workKind = computeKind(mergedTask);
+          merged[merged.length - 1] = mergedTask;
+          changed = true;
+          messages.push(
+            `Po zmianie planu połączono zadania ${formatRange(last.start, last.end)} i ${formatRange(item.start, item.end)} w ${formatRange(mergedTask.start, mergedTask.end)}.`
+          );
+        } else {
+          merged.push(item);
+        }
+      });
+
+      const finalItems = merged.map((task) => {
+        const wk = computeKind(task);
+        if ((task.workKind || '') !== wk) {
+          changed = true;
+          return { ...task, workKind: wk };
+        }
+        return task;
+      });
+
+      return { changed, items: finalItems, messages };
+    },
+    [selectedDate, shifts, spanStart, spanEnd]
+  );
   const outlookAnchorRect = outlookMenu.anchor ? outlookMenu.anchor.getBoundingClientRect() : null;
 
   const addSegment = () =>
@@ -988,6 +1161,34 @@ export default function EmployeePanel() {
     : 'W trakcie';
 
   const taskItems = useMemo(() => subDraft.items || [], [subDraft.items]);
+  useEffect(() => {
+    const prev = planContextRef.current;
+    const contextChanged =
+      prev.employeeId !== (selectedEmployee?.id ?? null) || prev.dateKey !== dKey;
+    const signatureChanged = prev.signature !== planSignature;
+
+    planContextRef.current = {
+      signature: planSignature,
+      employeeId: selectedEmployee?.id ?? null,
+      dateKey: dKey
+    };
+
+    if (!signatureChanged) return;
+    if (contextChanged) return;
+    if (!taskItems.length) return;
+
+    const result = reconcileTasksAfterPlanChange(taskItems);
+    if (result.changed) {
+      setSubDraft((prevDraft) => ({
+        ...prevDraft,
+        items: result.items
+      }));
+      if (typeof window !== 'undefined' && result.messages.length) {
+        const header = 'Plan dnia został zmieniony. Zadania zostały dostosowane.';
+        window.alert([header, ...result.messages].join('\n\n'));
+      }
+    }
+  }, [planSignature, selectedEmployee?.id, dKey, taskItems, reconcileTasksAfterPlanChange, setSubDraft]);
   const canSendTasks = taskItems.length > 0;
   useEffect(() => {
     if (!taskItems.length) {

@@ -63,7 +63,7 @@ export const getPlanSpanMins = (shifts) => {
 
 export const computeWorkKindFor = (task, date, shifts) => {
   if (!task?.start || !task?.end) return 'Zwykłe';
-  if (isWeekend(date)) return 'H + 100%';
+  if (isWeekend(date)) return '+ 100%';
 
   const startMinutes = toMinutes(task.start);
   const endMinutes = toMinutes(task.end);
@@ -77,17 +77,12 @@ export const computeWorkKindFor = (task, date, shifts) => {
   const spanStart = Number.isFinite(span.start) ? span.start : null;
   const spanEnd = Number.isFinite(span.end) ? span.end : null;
 
-  let coreStart = spanStart != null ? Math.max(spanStart, DEFAULT_CORE_START) : DEFAULT_CORE_START;
-  let coreEnd = spanEnd != null ? Math.min(spanEnd, DEFAULT_CORE_END) : DEFAULT_CORE_END;
+  let coreStart = spanStart != null ? spanStart : DEFAULT_CORE_START;
+  let coreEnd = spanEnd != null ? spanEnd : DEFAULT_CORE_END;
 
   if (!(coreEnd > coreStart)) {
-    if (spanStart != null && spanEnd != null && spanEnd > spanStart) {
-      coreStart = spanStart;
-      coreEnd = spanEnd;
-    } else {
-      coreStart = DEFAULT_CORE_START;
-      coreEnd = DEFAULT_CORE_END;
-    }
+    coreStart = DEFAULT_CORE_START;
+    coreEnd = DEFAULT_CORE_END;
   }
 
   if (startMinutes >= coreStart && endMinutes <= coreEnd) {
@@ -103,7 +98,7 @@ export const computeWorkKindFor = (task, date, shifts) => {
     endMinutes <= NIGHT_END;
 
   if (touchesNight) return 'Nocne';
-  return 'H + 50%';
+  return '+ 50%';
 };
 
 export const summarizePlan = (data) => {

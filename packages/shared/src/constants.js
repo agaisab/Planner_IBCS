@@ -30,7 +30,7 @@ export const DAY_STATUS_STYLES = {
 
 export const WORKKIND_STYLES = {
   'Zwykłe': 'bg-slate-50 border-slate-300 text-slate-700',
-  'H + 50%': 'bg-amber-50 border-amber-300 text-amber-800',
-  'H + 100%': 'bg-rose-50 border-rose-300 text-rose-800',
+  '+ 50%': 'bg-amber-50 border-amber-300 text-amber-800',
+  '+ 100%': 'bg-rose-50 border-rose-300 text-rose-800',
   Nocne: 'bg-indigo-50 border-indigo-300 text-indigo-800'
 };

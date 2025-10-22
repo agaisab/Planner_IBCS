@@ -966,7 +966,14 @@ const createDraft = (plan) =>
     setError(null);
     try {
       const employeePlans = await fetchPlansForEmployee(employee.id);
-      await Promise.all(employeePlans.map((plan) => deletePlan(plan.id)));
+      for (const plan of employeePlans) {
+        try {
+          await deletePlan(plan.id);
+        } catch (err) {
+          if (err instanceof Error && err.message.includes('404')) continue;
+          throw err;
+        }
+      }
       await deleteMonthlyLogsForEmployee(employee.id);
       await deleteEmployee(employee.id);
       const remaining = employees.filter((emp) => emp.id !== employee.id);
@@ -1779,9 +1786,9 @@ const createDraft = (plan) =>
                     const workStyle =
                       workKind === 'Zwykłe'
                         ? 'bg-slate-50 border-slate-300 text-slate-700'
-                        : workKind === 'H + 50%'
+                        : workKind === '+ 50%'
                         ? 'bg-amber-50 border-amber-300 text-amber-800'
-                        : workKind === 'H + 100%'
+                        : workKind === '+ 100%'
                         ? 'bg-rose-50 border-rose-300 text-rose-800'
                         : 'bg-indigo-50 border-indigo-300 text-indigo-800';
                     const statusStyle = STATUS_STYLES[item.status || 'Planowane'];
