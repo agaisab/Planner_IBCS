@@ -371,13 +371,43 @@
           "type": "EMP_SUBMIT",
           "at": "2025-10-22T08:41:09.933Z",
           "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-10-22T08:44:12.991Z",
+          "text": "Pracownik: Zmieniono zakres 1: czas 07:00–15:00 → 06:00–14:00"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T08:44:12.991Z",
+          "text": "Pracownik: Dodano zadanie [05:00–06:00] Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T08:44:12.991Z",
+          "text": "Pracownik: Dodano zadanie [06:00–14:00] Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T08:44:12.991Z",
+          "text": "Pracownik: Dodano zadanie [14:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T08:44:12.991Z",
+          "text": "Pracownik: Usunięto zadanie [07:00–15:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T08:44:12.991Z",
+          "text": "Pracownik: przesłał 3 zadań"
         }
       ],
       "shifts": [
         {
           "mode": "OFFICE",
-          "start": "07:00",
-          "end": "15:00"
+          "start": "06:00",
+          "end": "14:00"
         }
       ],
       "sent": true,
@@ -385,21 +415,46 @@
       "submission": {
         "items": [
           {
-            "id": "t1761122465308",
+            "id": "t1761122514408",
             "type": "Biuro",
             "subject": "",
             "client": "",
             "project": "",
-            "start": "07:00",
-            "end": "15:00",
+            "start": "05:00",
+            "end": "06:00",
+            "workKind": "Nocne",
+            "status": "Zakończone",
+            "locked": false
+          },
+          {
+            "id": "plan-1761122497338-0",
+            "type": "Biuro",
+            "subject": "",
+            "client": "",
+            "project": "",
+            "start": "06:00",
+            "end": "14:00",
             "workKind": "Zwykłe",
-            "status": "Planowane"
+            "status": "Zakończone",
+            "locked": false
+          },
+          {
+            "id": "t1761122526843",
+            "type": "Biuro",
+            "subject": "",
+            "client": "",
+            "project": "",
+            "start": "14:00",
+            "end": "16:00",
+            "workKind": "+ 50%",
+            "status": "Zakończone",
+            "locked": false
           }
         ],
         "status": "SUBMITTED",
-        "submittedAt": "2025-10-22T08:41:09.933Z",
-        "reportedMinutes": 480,
-        "dayStatus": "W trakcie"
+        "submittedAt": "2025-10-22T08:44:12.991Z",
+        "reportedMinutes": 660,
+        "dayStatus": "Rozliczone"
       }
     },
     {

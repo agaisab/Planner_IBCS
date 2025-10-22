@@ -1518,6 +1518,15 @@ Status: ${task.status || '-'}`;
           }
           return;
         }
+        const subjectFilled = (preview.subject || '').trim().length > 0;
+        const clientFilled = (preview.client || '').trim().length > 0;
+        const projectFilled = (preview.project || '').trim().length > 0;
+        if (!subjectFilled || !clientFilled || !projectFilled) {
+          if (typeof window !== 'undefined') {
+            window.alert('Aby oznaczyć zadanie jako zakończone, uzupełnij pola Temat, Klient i Dotyczy.');
+          }
+          return;
+        }
       }
 
       const timeFieldsChanged = 'start' in patch || 'end' in patch;
