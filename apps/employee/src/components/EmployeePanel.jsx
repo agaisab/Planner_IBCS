@@ -17,7 +17,8 @@ import {
   Plus,
   LogIn,
   Trash2,
-  Loader2
+  Loader2,
+  Check
 } from 'lucide-react';
 import {
   cls,
@@ -388,6 +389,8 @@ function StatusChooser({ value, onChange, disabled }) {
 
 const TaskRow = memo(function TaskRow({
   task,
+  selected,
+  onToggleSelect,
   menuRect,
   activeTaskId,
   registerAnchor,
@@ -409,6 +412,22 @@ const TaskRow = memo(function TaskRow({
 
   return (
     <tr className="border-t border-slate-200">
+      <td className="p-2 align-middle text-center">
+        <button
+          type="button"
+          onClick={() => onToggleSelect(task.id)}
+          className={cls(
+            'inline-flex items-center justify-center h-6 w-6 rounded-full border-2 transition-all shadow-sm focus:outline-none focus:ring-1 focus:ring-sky-400 focus:ring-offset-2',
+            selected
+              ? 'border-sky-500 bg-sky-50 text-sky-600 shadow-md'
+              : 'border-slate-300 bg-slate-100 text-slate-400 hover:border-sky-300 hover:bg-slate-50 hover:shadow-md'
+          )}
+          aria-pressed={selected}
+          aria-label={selected ? 'Odznacz zadanie' : 'Zaznacz zadanie'}
+        >
+          {selected ? <Check className="w-3 h-3" /> : <span className="block h-2 w-2 rounded-full bg-slate-400" />}
+        </button>
+      </td>
       <td className="p-2">
         <TaskTypeChooser value={task.type} onChange={(value) => onFieldChange(task.id, { type: value })} disabled={task.locked} />
       </td>
@@ -1161,6 +1180,25 @@ export default function EmployeePanel() {
     : 'W trakcie';
 
   const taskItems = useMemo(() => subDraft.items || [], [subDraft.items]);
+  const [selectedTaskIds, setSelectedTaskIds] = useState([]);
+  useEffect(() => {
+    if (!taskItems.length) {
+      setSelectedTaskIds([]);
+      return;
+    }
+    setSelectedTaskIds((prev) => prev.filter((id) => taskItems.some((item) => item.id === id)));
+  }, [taskItems]);
+  const toggleTaskSelection = useCallback((id) => {
+    setSelectedTaskIds((prev) =>
+      prev.includes(id) ? prev.filter((existingId) => existingId !== id) : [...prev, id]
+    );
+  }, []);
+  const allTasksSelected = taskItems.length > 0 && selectedTaskIds.length === taskItems.length;
+  const toggleAllTasks = useCallback(() => {
+    setSelectedTaskIds((prev) =>
+      prev.length === taskItems.length ? [] : taskItems.map((item) => item.id)
+    );
+  }, [taskItems]);
   useEffect(() => {
     const prev = planContextRef.current;
     const contextChanged =
@@ -1787,12 +1825,94 @@ Status: ${task.status || '-'}`;
     [setTask, shifts, taskItems, setSubDraft, selectedDate, spanEnd]
   );
 
-  const handleTaskLock = useCallback(
-    (id) => {
-      setTask(id, { locked: true });
-      closeTaskActions();
+  const persistTaskDraft = useCallback(
+    async (items, { status } = {}) => {
+      if (!selectedEmployee) return null;
+      setError(null);
+      const planId = sentDay?.id || planIdFor(selectedEmployee.id, dKey);
+      const basePlan = sentDay
+        ? sanitizePlan(sentDay)
+        : {
+            id: planId,
+            employeeId: selectedEmployee.id,
+            date: dKey,
+            shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
+            note: draftDay.note || '',
+            sent: false,
+            sentAt: null,
+            logs: []
+          };
+
+      const existingSubmission = basePlan.submission ? { ...basePlan.submission } : {};
+      const targetStatus =
+        status ?? (existingSubmission.status === 'SUBMITTED' ? 'SUBMITTED' : 'DRAFT');
+      const now = new Date().toISOString();
+      const submissionPayload = {
+        ...existingSubmission,
+        items: (items || []).map((item) => ({ ...item })),
+        status: targetStatus,
+        submittedAt:
+          targetStatus === 'SUBMITTED'
+            ? existingSubmission.submittedAt || now
+            : null,
+        reportedMinutes: computeReported(items),
+        dayStatus: computeDayStatus(items, planned),
+        updatedAt: now
+      };
+
+      const payload = {
+        ...basePlan,
+        id: planId,
+        employeeId: selectedEmployee.id,
+        date: dKey,
+        shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
+        note: draftDay.note || '',
+        submission: submissionPayload
+      };
+
+      try {
+        const saved = await savePlan(payload);
+        setPlansByDate((prev) => {
+          const current = prev[dKey];
+          if (current && deepEqual(current, saved)) return prev;
+          return { ...prev, [dKey]: saved };
+        });
+        return saved?.submission || submissionPayload;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        throw err;
+      }
     },
-    [setTask, closeTaskActions]
+    [selectedEmployee?.id, sentDay, dKey, draftDay.shifts, draftDay.note, planned, setPlansByDate]
+  );
+
+  const handleTaskLock = useCallback(
+    async (id) => {
+      const previousItems = taskItems.map((item) => ({ ...item }));
+      const nextItems = previousItems.map((item) =>
+        item.id === id ? { ...item, locked: true } : item
+      );
+
+      setSubDraft((prev) => ({
+        ...prev,
+        items: nextItems
+      }));
+      closeTaskActions();
+
+      try {
+        const savedSubmission = await persistTaskDraft(nextItems);
+        if (savedSubmission) {
+          setSubDraft((prev) => (deepEqual(prev, savedSubmission) ? prev : savedSubmission));
+        }
+      } catch (err) {
+        console.error(err);
+        setSubDraft((prev) => ({
+          ...prev,
+          items: previousItems
+        }));
+      }
+    },
+    [taskItems, persistTaskDraft, closeTaskActions]
   );
 
   const handleTaskUnlock = useCallback(
@@ -2286,6 +2406,26 @@ Status: ${task.status || '-'}`;
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 text-slate-600">
                 <tr>
+                  <th className="p-2 w-10 text-center">
+                    <button
+                      type="button"
+                      onClick={toggleAllTasks}
+                      className={cls(
+                        'inline-flex items-center justify-center h-6 w-6 rounded-full border-2 transition-all shadow-sm focus:outline-none focus:ring-1 focus:ring-sky-400 focus:ring-offset-2',
+                        allTasksSelected
+                          ? 'border-sky-500 bg-sky-50 text-sky-600 shadow-md'
+                          : 'border-slate-300 bg-slate-100 text-slate-400 hover:border-sky-300 hover:bg-slate-50 hover:shadow-md'
+                      )}
+                      aria-pressed={allTasksSelected}
+                      aria-label={allTasksSelected ? 'Odznacz wszystkie zadania' : 'Zaznacz wszystkie zadania'}
+                    >
+                      {allTasksSelected ? (
+                        <Check className="w-3 h-3" />
+                      ) : (
+                        <span className="block h-2 w-2 rounded-full bg-slate-400" />
+                      )}
+                    </button>
+                  </th>
                   <th className="p-2 text-left">Tryb pracy</th>
                   <th className="p-2 text-left">Temat</th>
                   <th className="p-2 text-left">Klient</th>
@@ -2301,6 +2441,8 @@ Status: ${task.status || '-'}`;
                 {taskItems.map((item) => (
                   <TaskRow
                     key={item.id}
+                    selected={selectedTaskIds.includes(item.id)}
+                    onToggleSelect={toggleTaskSelection}
                     task={item}
                     menuRect={taskActionsMenu.rect}
                     activeTaskId={taskActionsMenu.id}

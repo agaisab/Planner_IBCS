@@ -579,9 +579,9 @@ const [deletingManager, setDeletingManager] = useState(false);
   const [reportMonth, setReportMonth] = useState(() => `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, '0')}`);
   const [reportDetailed, setReportDetailed] = useState(false);
   const [logsConfirmOpen, setLogsConfirmOpen] = useState(false);
-  const [logsClearing, setLogsClearing] = useState(false);
-  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
-  const actionsMenuRef = useRef(null);
+const [logsClearing, setLogsClearing] = useState(false);
+const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+const actionsMenuRef = useRef(null);
 
 const selectedEmployeeId = selectedEmployee?.id;
 
@@ -723,7 +723,7 @@ const createDraft = (plan) =>
     ? { ...plan, dirty: false }
     : { id: null, shifts: [], note: '', dirty: false };
 
-  const [draftDay, setDraftDay] = useState(createDraft(sentDay));
+const [draftDay, setDraftDay] = useState(createDraft(sentDay));
   useEffect(() => {
     const nextDraft = createDraft(sentDay);
     setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
@@ -885,10 +885,14 @@ const createDraft = (plan) =>
       if (!plan?.date) return;
       const shiftsArr = plan.shifts || [];
       const planMinutes = shiftsArr.reduce((acc, shift) => acc + (toMinutes(shift.end) - toMinutes(shift.start)), 0);
-      const items = plan.submission?.items || [];
-      const reported = plan.submission?.reportedMinutes ?? computeReported(items);
+      const submissionEntry = plan.submission;
+      const submissionActive = submissionEntry?.status === 'SUBMITTED';
+      const items = submissionActive ? submissionEntry.items || [] : [];
+      const reported = submissionActive
+        ? submissionEntry.reportedMinutes ?? computeReported(items)
+        : 0;
       const closed = items.length > 0 && items.every((task) => String(task.status || '').toLowerCase().includes('zako'));
-      const settled = plan.submission && planMinutes > 0 && reported >= planMinutes && closed;
+      const settled = submissionActive && planMinutes > 0 && reported >= planMinutes && closed;
       map[plan.date] = settled ? 'SETTLED' : plan.sent ? 'PLANNED' : 'NONE';
     });
     return map;
@@ -907,7 +911,10 @@ const createDraft = (plan) =>
     return map;
   }, [plansByDate]);
 
-  const sentSubmission = sentDay?.submission;
+  const sentSubmission =
+    sentDay?.submission && sentDay.submission.status === 'SUBMITTED'
+      ? sentDay.submission
+      : null;
   const submissionItemsForDisplay = useMemo(
     () =>
       splitTasksByPlanStart(
@@ -1234,7 +1241,9 @@ const createDraft = (plan) =>
         sumPlan += planMinutes;
         let tasksCell = '';
         if (reportDetailed) {
-          const items = plan?.submission?.items || [];
+          const submissionEntry = plan?.submission;
+          const items =
+            submissionEntry?.status === 'SUBMITTED' ? submissionEntry.items || [] : [];
           const lines = items.map(
             (item) =>
               `${item.start || ''}–${item.end || ''} ${item.type || ''} • ${item.subject || ''}${
