@@ -309,6 +309,81 @@
           "type": "SENT",
           "at": "2025-10-22T08:51:21.084Z",
           "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T10:48:42.373Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T10:48:42.373Z",
+          "text": "Pracownik: Dodano zadanie [16:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T10:48:42.373Z",
+          "text": "Pracownik: Dodano zadanie [16:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T10:48:42.373Z",
+          "text": "Pracownik: Usunięto zadanie [08:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T10:48:42.373Z",
+          "text": "Pracownik: przesłał 3 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T10:49:42.086Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T10:49:42.086Z",
+          "text": "Pracownik: Usunięto zadanie [08:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T10:49:42.086Z",
+          "text": "Pracownik: Usunięto zadanie [16:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T10:49:42.086Z",
+          "text": "Pracownik: Usunięto zadanie [16:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T10:49:42.086Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T10:49:44.293Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T10:49:46.408Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T10:57:46.060Z",
+          "text": "Pracownik: Usunięto zadanie [16:00–16:00] bbb"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T10:57:46.060Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T10:58:04.562Z",
+          "text": "Pracownik: przesłał 1 zadań"
         }
       ],
       "shifts": [
@@ -321,25 +396,12 @@
       "sent": true,
       "sentAt": "2025-10-22T08:51:21.084Z",
       "submission": {
-        "items": [
-          {
-            "id": "t1761124832768",
-            "type": "Biuro",
-            "subject": "",
-            "client": "",
-            "project": "",
-            "start": "08:00",
-            "end": "16:00",
-            "workKind": "Zwykłe",
-            "status": "Planowane",
-            "locked": true
-          }
-        ],
-        "status": "DRAFT",
-        "submittedAt": null,
-        "reportedMinutes": 480,
+        "items": [],
+        "status": "SUBMITTED",
+        "submittedAt": "2025-10-22T10:58:04.562Z",
+        "reportedMinutes": 0,
         "dayStatus": "W trakcie",
-        "updatedAt": "2025-10-22T09:20:34.335Z"
+        "updatedAt": "2025-10-22T10:58:45.085Z"
       }
     },
     {
@@ -352,6 +414,21 @@
           "type": "SENT",
           "at": "2025-10-22T08:51:21.084Z",
           "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T10:46:07.438Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T10:46:12.244Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T10:46:16.760Z",
+          "text": "Pracownik: przesłał 1 zadań"
         }
       ],
       "shifts": [
@@ -362,7 +439,15 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-22T08:51:21.084Z"
+      "sentAt": "2025-10-22T08:51:21.084Z",
+      "submission": {
+        "items": [],
+        "status": "DRAFT",
+        "submittedAt": null,
+        "reportedMinutes": 0,
+        "dayStatus": "W trakcie",
+        "updatedAt": "2025-10-22T12:01:39.776Z"
+      }
     },
     {
       "id": "e1761123074485_2025-10-17",
@@ -455,6 +540,191 @@
           "type": "EMP_SUBMIT",
           "at": "2025-10-22T08:58:49.182Z",
           "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T10:59:05.175Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] aaa"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T10:59:05.175Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T11:00:37.338Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T11:00:37.338Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T11:01:24.047Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T11:01:35.735Z",
+          "text": "Pracownik: Zmieniono zadanie [08:00–16:00] aaa (Klient: aaa): status Planowane → Zakończone"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T11:01:35.735Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T11:15:07.431Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T11:15:07.431Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T11:16:28.186Z",
+          "text": "Pracownik: Usunięto zadanie [16:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T11:16:28.186Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T11:16:52.868Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T11:53:39.250Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] aa (Klient: aa)"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T11:53:39.250Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T11:54:49.612Z",
+          "text": "Pracownik: Dodano zadanie [16:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T11:54:49.612Z",
+          "text": "Pracownik: Usunięto zadanie [08:00–16:00] aabbb (Klient: aabb)"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T11:54:49.612Z",
+          "text": "Pracownik: Usunięto zadanie [16:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T11:54:49.612Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T11:59:07.976Z",
+          "text": "Pracownik: Usunięto zadanie [16:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T11:59:07.976Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T11:59:45.568Z",
+          "text": "Pracownik: Usunięto zadanie [16:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T11:59:45.568Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T12:00:12.687Z",
+          "text": "Pracownik: Usunięto zadanie [16:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T12:00:12.687Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T12:03:25.132Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T12:04:03.977Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T12:06:49.135Z",
+          "text": "Pracownik: Usunięto zadanie [08:00–16:00] aaa (Klient: aa)"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T12:06:49.135Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T12:07:46.397Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T12:08:05.773Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T12:09:05.598Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T12:09:17.131Z",
+          "text": "Pracownik: Zmieniono zadanie [08:00–16:00] bbb (Klient: bbb): temat \"aaa\" → \"bbb\", klient aaa → bbb, dotyczy aaa → bb"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T12:09:17.131Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T12:11:07.998Z",
+          "text": "Pracownik: Usunięto zadanie [08:00–16:00] bbb (Klient: bbb)"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T12:11:07.998Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-10-22T12:12:14.274Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-10-22T12:12:14.274Z",
+          "text": "Pracownik: przesłał 1 zadań"
         }
       ],
       "shifts": [
@@ -469,7 +739,19 @@
       "submission": {
         "items": [
           {
-            "id": "t1761123494359",
+            "id": "t1761135124609",
+            "type": "Biuro",
+            "subject": "das",
+            "client": "das",
+            "project": "das",
+            "start": "08:00",
+            "end": "16:00",
+            "workKind": "Zwykłe",
+            "status": "Planowane",
+            "locked": true
+          },
+          {
+            "id": "t1761135266630",
             "type": "Biuro",
             "subject": "",
             "client": "",
@@ -482,10 +764,10 @@
           }
         ],
         "status": "SUBMITTED",
-        "submittedAt": "2025-10-22T08:58:49.182Z",
-        "reportedMinutes": 0,
+        "submittedAt": "2025-10-22T12:12:14.274Z",
+        "reportedMinutes": 480,
         "dayStatus": "W trakcie",
-        "updatedAt": "2025-10-22T08:58:16.190Z"
+        "updatedAt": "2025-10-22T12:14:28.349Z"
       }
     },
     {
@@ -510,25 +792,12 @@
       "sent": true,
       "sentAt": "2025-10-22T08:51:21.084Z",
       "submission": {
-        "items": [
-          {
-            "id": "t1761123576086",
-            "type": "Biuro",
-            "subject": "",
-            "client": "",
-            "project": "",
-            "start": "08:00",
-            "end": "16:00",
-            "workKind": "Zwykłe",
-            "status": "Planowane",
-            "locked": true
-          }
-        ],
+        "items": [],
         "status": "DRAFT",
         "submittedAt": null,
-        "reportedMinutes": 480,
+        "reportedMinutes": 0,
         "dayStatus": "W trakcie",
-        "updatedAt": "2025-10-22T08:59:47.132Z"
+        "updatedAt": "2025-10-22T12:01:34.790Z"
       }
     },
     {

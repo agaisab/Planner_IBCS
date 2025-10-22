@@ -18,7 +18,9 @@ import {
   LogIn,
   Trash2,
   Loader2,
-  Check
+  Check,
+  Clock4,
+  Edit3
 } from 'lucide-react';
 import {
   cls,
@@ -57,6 +59,31 @@ const CARD = 'rounded-2xl border-2 border-slate-300 bg-white shadow-sm p-4';
 const CHIP = 'inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-sm';
 const WEEK_DAYS = ['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'];
 const ABSENCE_TASK_TYPES = ['Urlop', 'L4', 'Nieobecność'];
+
+const TASK_STATE_META = {
+  SENT: {
+    className: 'bg-emerald-50 border-emerald-200 text-emerald-700',
+    Icon: Send,
+    label: 'Wysłane'
+  },
+  DRAFT: {
+    className: 'bg-amber-50 border-amber-200 text-amber-700',
+    Icon: Clock4,
+    label: 'Zapisane'
+  },
+  EDITED: {
+    className: 'bg-slate-100 border-slate-200 text-slate-600',
+    Icon: Edit3,
+    label: 'Edytowane'
+  }
+};
+
+const normalizeTaskStates = (items, defaultState = 'EDITED') =>
+  (items || []).map((task) => {
+    const state = task._syncState || defaultState;
+    if (state === task._syncState) return task;
+    return { ...task, _syncState: state };
+  });
 
 const formatTimeLabel = (value) => {
   if (!value) return '—';
@@ -402,6 +429,9 @@ const TaskRow = memo(function TaskRow({
   onDelete,
   computeWorkKind
 }) {
+  const stateKey = task._syncState || 'EDITED';
+  const stateMeta = TASK_STATE_META[stateKey] || TASK_STATE_META.EDITED;
+  const StateIcon = stateMeta.Icon;
   const menuOpen = activeTaskId === task.id;
   const isAbsenceType = ABSENCE_TASK_TYPES.includes(task.type);
   const workKind = isAbsenceType ? 'Zwykłe' : computeWorkKind(task);
@@ -422,6 +452,7 @@ const TaskRow = memo(function TaskRow({
               ? 'border-sky-500 bg-sky-50 text-sky-600 shadow-md'
               : 'border-slate-300 bg-slate-100 text-slate-400 hover:border-sky-300 hover:bg-slate-50 hover:shadow-md'
           )}
+          disabled={task._syncState === 'SENT'}
           aria-pressed={selected}
           aria-label={selected ? 'Odznacz zadanie' : 'Zaznacz zadanie'}
         >
@@ -474,6 +505,17 @@ const TaskRow = memo(function TaskRow({
           disabled={task.locked || isAbsenceType}
         />
       </td>
+      <td className="p-2">
+        <span
+          className={cls(
+            'inline-flex items-center justify-center h-7 w-7 rounded-full border',
+            stateMeta.className
+          )}
+          title={stateMeta.label}
+        >
+          <StateIcon className="w-3.5 h-3.5" aria-hidden="true" />
+        </span>
+      </td>
       <td className="relative p-2 text-right">
         <button
           ref={actionRef}
@@ -512,13 +554,6 @@ const TaskRow = memo(function TaskRow({
                 className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-slate-50"
               >
                 <CalendarPlus className="w-4 h-4" /> Do Outlooka
-              </button>
-              <button
-                data-task-actions-menu
-                onClick={() => onDelete(task.id)}
-                className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-rose-700 hover:bg-rose-50"
-              >
-                <Trash2 className="w-4 h-4" /> Usuń
               </button>
             </div>,
             document.body
@@ -1150,6 +1185,10 @@ export default function EmployeePanel() {
 
     const payload = {
       ...nextPlanState,
+      submission: {
+        ...submission,
+        items: submission.items.map(({ _syncState, ...rest }) => rest)
+      },
       logs
     };
     try {
@@ -1170,10 +1209,32 @@ export default function EmployeePanel() {
   };
 
   const submitted = sentDay?.submission;
-  const [subDraft, setSubDraft] = useState(submitted ? { ...submitted } : { status: 'SUBMITTED', dayStatus: 'W trakcie', items: [] });
+  const emptyDraft = { status: 'DRAFT', dayStatus: 'W trakcie', items: [] };
+  const [subDraft, setSubDraft] = useState(() =>
+    submitted
+      ? {
+          ...submitted,
+          items: normalizeTaskStates(
+            submitted.items,
+            submitted.status === 'SUBMITTED' ? 'SENT' : 'DRAFT'
+          )
+        }
+      : emptyDraft
+  );
   useEffect(() => {
-    setSubDraft(submitted ? { ...submitted } : { status: 'SUBMITTED', dayStatus: 'W trakcie', items: [] });
-  }, [submitted?.submittedAt, selectedEmployee?.id, dKey]);
+    setSubDraft(
+      submitted
+        ? {
+            ...submitted,
+            items: normalizeTaskStates(
+              submitted.items,
+              submitted.status === 'SUBMITTED' ? 'SENT' : 'DRAFT'
+            )
+          }
+        : emptyDraft
+    );
+    setSelectedTaskIds([]);
+  }, [submitted?.submittedAt, submitted?.status, submitted?.items, selectedEmployee?.id, dKey]);
 
   const displayDayStatus = submitted
     ? submitted.dayStatus || computeDayStatus(submitted.items, planned)
@@ -1188,17 +1249,31 @@ export default function EmployeePanel() {
     }
     setSelectedTaskIds((prev) => prev.filter((id) => taskItems.some((item) => item.id === id)));
   }, [taskItems]);
-  const toggleTaskSelection = useCallback((id) => {
-    setSelectedTaskIds((prev) =>
-      prev.includes(id) ? prev.filter((existingId) => existingId !== id) : [...prev, id]
-    );
-  }, []);
-  const allTasksSelected = taskItems.length > 0 && selectedTaskIds.length === taskItems.length;
+  const toggleTaskSelection = useCallback(
+    (id) => {
+      const task = taskItems.find((item) => item.id === id);
+      if (!task || task._syncState === 'SENT') return;
+      setSelectedTaskIds((prev) =>
+        prev.includes(id)
+          ? prev.filter((existingId) => existingId !== id)
+          : [...prev, id]
+      );
+    },
+    [taskItems]
+  );
+  const selectableTaskIds = useMemo(
+    () => taskItems.filter((item) => item._syncState !== 'SENT').map((item) => item.id),
+    [taskItems]
+  );
+  const allTasksSelected =
+    selectableTaskIds.length > 0 && selectableTaskIds.every((id) => selectedTaskIds.includes(id));
   const toggleAllTasks = useCallback(() => {
-    setSelectedTaskIds((prev) =>
-      prev.length === taskItems.length ? [] : taskItems.map((item) => item.id)
-    );
-  }, [taskItems]);
+    setSelectedTaskIds((prev) => {
+      if (selectableTaskIds.length === 0) return [];
+      const isAllSelected = selectableTaskIds.every((id) => prev.includes(id));
+      return isAllSelected ? [] : selectableTaskIds;
+    });
+  }, [selectableTaskIds]);
   useEffect(() => {
     const prev = planContextRef.current;
     const contextChanged =
@@ -1227,7 +1302,7 @@ export default function EmployeePanel() {
       }
     }
   }, [planSignature, selectedEmployee?.id, dKey, taskItems, reconcileTasksAfterPlanChange, setSubDraft]);
-  const canSendTasks = taskItems.length > 0;
+  const canSendTasks = selectedTaskIds.some((id) => selectableTaskIds.includes(id));
   useEffect(() => {
     if (!taskItems.length) {
       setTaskActionsMenu({ id: null, rect: null });
@@ -1263,7 +1338,8 @@ export default function EmployeePanel() {
               start: defaultStart,
               end: defaultEnd,
               workKind: 'Zwykłe',
-              status: 'Planowane'
+              status: 'Planowane',
+              _syncState: 'EDITED'
             }
           ]
         };
@@ -1288,30 +1364,27 @@ export default function EmployeePanel() {
         end: segment.end,
         workKind: 'Zwykłe',
         status: 'Planowane',
-        locked: false
+        locked: false,
+        _syncState: 'EDITED'
       };
     });
     setSubDraft((prev) => ({
-      status: prev.status || 'SUBMITTED',
+      status: prev.status || 'DRAFT',
       dayStatus: prev.dayStatus || 'W trakcie',
       items: generated
     }));
   }, [shifts]);
 
-  const delTask = useCallback(
-    (id) =>
-      setSubDraft((prev) => ({
-        ...prev,
-        items: (prev.items || []).filter((item) => item.id !== id)
-      })),
-    []
-  );
-
   const setTask = useCallback(
     (id, patch) =>
       setSubDraft((prev) => ({
         ...prev,
-        items: (prev.items || []).map((item) => (item.id === id ? { ...item, ...patch } : item))
+        items: (prev.items || []).map((item) => {
+          if (item.id !== id) return item;
+          const next = { ...item, ...patch };
+          if (!next.locked) next._syncState = 'EDITED';
+          return next;
+        })
       })),
     []
   );
@@ -1646,7 +1719,8 @@ Status: ${task.status || '-'}`;
               const segmentsWithIds = baseSegments.map((segment, segIndex) => ({
                 ...segment,
                 id: segIndex === baseSegments.length - 1 ? id : `t${timestamp + segIndex}`,
-                locked: false
+                locked: false,
+                _syncState: 'EDITED'
               }));
 
               updated.splice(index, 0, ...segmentsWithIds);
@@ -1690,7 +1764,8 @@ Status: ${task.status || '-'}`;
               ...nextTask,
               id: overtimeId,
               start: spanEnd,
-              locked: false
+              locked: false,
+              _syncState: 'EDITED'
             };
             updated.splice(index + 1, 0, overtimeTask);
 
@@ -1738,12 +1813,17 @@ Status: ${task.status || '-'}`;
               updated.splice(index, 1);
             }
 
-            const firstTask = { ...nextTask, end: nightLabel };
+            const firstTask = {
+              ...nextTask,
+              end: nightLabel,
+              _syncState: nextTask.locked ? 'SENT' : 'EDITED'
+            };
             const secondTask = {
               ...nextTask,
               id: newTaskId,
               start: nightLabel,
-              locked: false
+              locked: false,
+              _syncState: 'EDITED'
             };
 
             updated.splice(index, 0, firstTask, secondTask);
@@ -1813,7 +1893,8 @@ Status: ${task.status || '-'}`;
               end: gapEnd,
               workKind: 'Zwykłe',
               status: 'Planowane',
-              locked: false
+              locked: false,
+              _syncState: 'EDITED'
             };
             updatedItems.splice(index + 1, 0, followup);
           }
@@ -1826,7 +1907,7 @@ Status: ${task.status || '-'}`;
   );
 
   const persistTaskDraft = useCallback(
-    async (items, { status } = {}) => {
+    async (items) => {
       if (!selectedEmployee) return null;
       setError(null);
       const planId = sentDay?.id || planIdFor(selectedEmployee.id, dKey);
@@ -1844,12 +1925,20 @@ Status: ${task.status || '-'}`;
           };
 
       const existingSubmission = basePlan.submission ? { ...basePlan.submission } : {};
-      const targetStatus =
-        status ?? (existingSubmission.status === 'SUBMITTED' ? 'SUBMITTED' : 'DRAFT');
+      const hasSentTasks = (items || []).some((task) => task._syncState === 'SENT');
+      const targetStatus = hasSentTasks
+        ? 'SUBMITTED'
+        : existingSubmission.status === 'SUBMITTED'
+        ? 'SUBMITTED'
+        : 'DRAFT';
       const now = new Date().toISOString();
+      const normalizedItems = normalizeTaskStates(
+        items,
+        targetStatus === 'SUBMITTED' ? 'SENT' : 'DRAFT'
+      );
       const submissionPayload = {
         ...existingSubmission,
-        items: (items || []).map((item) => ({ ...item })),
+        items: normalizedItems,
         status: targetStatus,
         submittedAt:
           targetStatus === 'SUBMITTED'
@@ -1867,7 +1956,10 @@ Status: ${task.status || '-'}`;
         date: dKey,
         shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
         note: draftDay.note || '',
-        submission: submissionPayload
+        submission: {
+          ...submissionPayload,
+          items: submissionPayload.items.map(({ _syncState, ...rest }) => rest)
+        }
       };
 
       try {
@@ -1877,7 +1969,14 @@ Status: ${task.status || '-'}`;
           if (current && deepEqual(current, saved)) return prev;
           return { ...prev, [dKey]: saved };
         });
-        return saved?.submission || submissionPayload;
+        const nextSubmission = saved?.submission || submissionPayload;
+        return {
+          ...nextSubmission,
+          items: normalizeTaskStates(
+            nextSubmission.items,
+            nextSubmission.status === 'SUBMITTED' ? 'SENT' : 'DRAFT'
+          )
+        };
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
         throw err;
@@ -1886,12 +1985,48 @@ Status: ${task.status || '-'}`;
     [selectedEmployee?.id, sentDay, dKey, draftDay.shifts, draftDay.note, planned, setPlansByDate]
   );
 
+  const deleteTasksByIds = useCallback(
+    async (ids) => {
+      const uniqueIds = [...new Set(ids)].filter((taskId) => {
+        if (!taskId) return false;
+        return taskItems.some((item) => item.id === taskId);
+      });
+      if (!uniqueIds.length) return;
+      const remaining = taskItems.filter((item) => !uniqueIds.includes(item.id));
+      if (remaining.length === taskItems.length) return;
+      const normalizedRemaining = normalizeTaskStates(remaining, 'DRAFT');
+      const nextDayStatus = normalizedRemaining.length
+        ? computeDayStatus(normalizedRemaining, planned)
+        : 'W trakcie';
+      setSubDraft((prev) => ({
+        ...prev,
+        status: normalizedRemaining.some((task) => task._syncState === 'SENT')
+          ? 'SUBMITTED'
+          : 'DRAFT',
+        dayStatus: nextDayStatus,
+        items: normalizedRemaining
+      }));
+      setSelectedTaskIds((prev) => prev.filter((itemId) => !uniqueIds.includes(itemId)));
+      try {
+        const savedSubmission = await persistTaskDraft(remaining);
+        if (savedSubmission) {
+          setSubDraft((prev) => (deepEqual(prev, savedSubmission) ? prev : savedSubmission));
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    [taskItems, persistTaskDraft]
+  );
+
   const handleTaskLock = useCallback(
     async (id) => {
       const previousItems = taskItems.map((item) => ({ ...item }));
-      const nextItems = previousItems.map((item) =>
-        item.id === id ? { ...item, locked: true } : item
-      );
+      const nextItems = previousItems.map((item) => {
+        if (item.id !== id) return item;
+        const nextState = item._syncState === 'SENT' ? 'SENT' : 'DRAFT';
+        return { ...item, locked: true, _syncState: nextState };
+      });
 
       setSubDraft((prev) => ({
         ...prev,
@@ -1917,28 +2052,44 @@ Status: ${task.status || '-'}`;
 
   const handleTaskUnlock = useCallback(
     (id) => {
-      setTask(id, { locked: false });
+      setTask(id, { locked: false, _syncState: 'EDITED' });
       closeTaskActions();
     },
     [setTask, closeTaskActions]
   );
 
   const handleTaskDelete = useCallback(
-    (id) => {
-      delTask(id);
+    async (id) => {
+      await deleteTasksByIds([id]);
       closeTaskActions();
     },
-    [delTask, closeTaskActions]
+    [deleteTasksByIds, closeTaskActions]
   );
 
   const sendTasksToManager = async () => {
     if (!selectedEmployee || sendingTasks) return;
+    if (selectedTaskIds.length === 0) {
+      if (typeof window !== 'undefined') {
+        window.alert('Zaznacz zadania, aby je wysłać.');
+      }
+      return;
+    }
+    const tasksToSend = taskItems.filter(
+      (item) => selectedTaskIds.includes(item.id) && item._syncState !== 'SENT'
+    );
+    if (!tasksToSend.length) {
+      if (typeof window !== 'undefined') {
+        window.alert('Brak zaznaczonych zadań do wysłania.');
+      }
+      return;
+    }
     setSendingTasks(true);
     setError(null);
     const now = new Date().toISOString();
-    const items = taskItems.map((item) => ({
+    const items = tasksToSend.map((item) => ({
       ...item,
-      workKind: wkOf(item)
+      workKind: wkOf(item),
+      _syncState: 'SENT'
     }));
     const reported = computeReported(items);
     const dayState = computeDayStatus(items, planned);
@@ -1994,6 +2145,7 @@ Status: ${task.status || '-'}`;
       ...nextPlanState,
       logs
     };
+    const sentMap = new Map(items.map((item) => [item.id, item]));
     try {
       await savePlan(payload);
       setPlansByDate((prev) => {
@@ -2003,7 +2155,28 @@ Status: ${task.status || '-'}`;
       });
       const nextDraft = { ...payload, dirty: false };
       setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
-      setSubDraft({ ...submission });
+      setSubDraft((prev) => {
+        const prevItems = prev.items || [];
+        const nextItems = prevItems.map((task) => {
+          const sent = sentMap.get(task.id);
+          if (!sent) return task;
+          return { ...task, ...sent, locked: true };
+        });
+        // append any newly sent tasks that were not previously in the list (shouldn't happen but guard)
+        sentMap.forEach((sentTask, sentId) => {
+          if (!prevItems.some((task) => task.id === sentId)) {
+            nextItems.push({ ...sentTask, locked: true });
+          }
+        });
+        return {
+          ...prev,
+          status: 'SUBMITTED',
+          submittedAt: now,
+          dayStatus: dayState,
+          items: nextItems
+        };
+      });
+      setSelectedTaskIds([]);
       await refreshEmployeePlans();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -2411,11 +2584,12 @@ Status: ${task.status || '-'}`;
                       type="button"
                       onClick={toggleAllTasks}
                       className={cls(
-                        'inline-flex items-center justify-center h-6 w-6 rounded-full border-2 transition-all shadow-sm focus:outline-none focus:ring-1 focus:ring-sky-400 focus:ring-offset-2',
+                        'inline-flex items-center justify-center h-6 w-6 rounded-full border-2 transition-all shadow-sm focus:outline-none focus:ring-1 focus:ring-sky-400 focus:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed',
                         allTasksSelected
                           ? 'border-sky-500 bg-sky-50 text-sky-600 shadow-md'
                           : 'border-slate-300 bg-slate-100 text-slate-400 hover:border-sky-300 hover:bg-slate-50 hover:shadow-md'
                       )}
+                      disabled={selectableTaskIds.length === 0}
                       aria-pressed={allTasksSelected}
                       aria-label={allTasksSelected ? 'Odznacz wszystkie zadania' : 'Zaznacz wszystkie zadania'}
                     >
@@ -2434,6 +2608,7 @@ Status: ${task.status || '-'}`;
                   <th className="p-2 text-left">Koniec</th>
                   <th className="p-2 text-left">Rodzaj</th>
                   <th className="p-2 text-left">Status</th>
+                  <th className="p-2 text-left">Stan</th>
                   <th className="p-2 text-right">Akcje</th>
                 </tr>
               </thead>
@@ -2498,7 +2673,17 @@ Status: ${task.status || '-'}`;
             document.body
           )}
         <div className="mt-3 flex items-center justify-between gap-2">
-          <div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => deleteTasksByIds(selectedTaskIds)}
+              className={cls(
+                BTN,
+                'border-rose-300 text-rose-600 hover:bg-rose-50'
+              )}
+              disabled={!selectedTaskIds.length}
+            >
+              <Trash2 className="w-4 h-4" /> Usuń
+            </button>
             <button onClick={importPlanToTasks} className={BTN}>
               <CalendarDays className="w-4 h-4" /> Importuj plan
             </button>
@@ -2521,7 +2706,7 @@ Status: ${task.status || '-'}`;
                 </>
               ) : (
                 <>
-                  <Send className="w-4 h-4 text-emerald-600" /> Wyślij zadania
+                  <Send className="w-4 h-4 text-emerald-600" /> Wyślij
                 </>
               )}
             </button>
