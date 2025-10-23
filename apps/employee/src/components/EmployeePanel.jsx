@@ -19,7 +19,6 @@ import {
   Trash2,
   Loader2,
   Check,
-  Clock4,
   Edit3
 } from 'lucide-react';
 import {
@@ -68,7 +67,7 @@ const TASK_STATE_META = {
   },
   DRAFT: {
     className: 'bg-amber-50 border-amber-200 text-amber-700',
-    Icon: Clock4,
+    Icon: Save,
     label: 'Zapisane'
   },
   EDITED: {
@@ -268,6 +267,17 @@ const describeTaskChanges = (previousItems = [], nextItems = []) => {
 
 const planIdFor = (employeeId, dateKey) => `${employeeId}_${dateKey}`;
 
+const formatCompactDuration = (mins) => {
+  const value = Math.max(0, Math.round(mins || 0));
+  if (value === 0) return '0h';
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  const parts = [];
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  return parts.join(' ');
+};
+
 function TimeSelect({ value, onChange, placeholder, disabled }) {
   const v = value ?? '';
   const opts = v && !timeOptions15.includes(v) ? [v, ...timeOptions15] : timeOptions15;
@@ -276,7 +286,7 @@ function TimeSelect({ value, onChange, placeholder, disabled }) {
       value={v}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
-      className="mt-1 w-full max-w-[7rem] rounded-xl border-2 border-slate-300 px-3 py-2 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+      className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
     >
       <option value="">{placeholder || '—'}</option>
       {opts.map((o) => (
@@ -982,6 +992,10 @@ export default function EmployeePanel() {
     [shifts]
   );
   const planContextRef = useRef({ signature: null, employeeId: null, dateKey: null });
+  const planAdjustmentAlertRef = useRef({ signature: null, shown: false });
+  const taskAdjustmentCacheRef = useRef(new Map());
+  const mergePromptPrefRef = useRef('ask');
+  const splitPromptPrefRef = useRef('ask');
   const viewContextRef = useRef({ employeeId: null, dateKey: null });
   useEffect(() => {
     viewContextRef.current = {
@@ -1075,7 +1089,7 @@ export default function EmployeePanel() {
         });
         rawSegments.push([segmentStart, endMinutes]);
 
-        const segmentTasks = rawSegments
+        let segmentTasks = rawSegments
           .filter(([segStart, segEnd]) => segEnd > segStart)
           .map(([segStart, segEnd], idx) => {
             const startLabel = minutesToHHmm(segStart);
@@ -1092,14 +1106,47 @@ export default function EmployeePanel() {
           });
 
         if (segmentTasks.length > 1) {
-          changed = true;
           const summary = segmentTasks
             .map((seg) => `• ${formatRange(seg.start, seg.end)} (${seg.workKind})`)
             .join('\n');
-          messages.push(
-            `Zadanie ${formatRange(task.start, task.end)} dostosowano do nowego planu:\n${summary}`
-          );
-        } else if (segmentTasks[0]) {
+          let shouldSplit = true;
+          if (splitPromptPrefRef.current === 'always') shouldSplit = true;
+          else if (splitPromptPrefRef.current === 'never') shouldSplit = false;
+          else if (typeof window !== 'undefined') {
+            shouldSplit = window.confirm(
+              [
+                'Zmieniony plan sugeruje podział zadania na kilka odcinków:',
+                summary,
+                '',
+                'Wybierz „OK”, aby rozdzielić zadanie, lub „Cancel”, aby pozostawić je bez zmian.'
+              ].join('\n')
+            );
+            const remember =
+              typeof window !== 'undefined' &&
+              window.confirm(
+                'Czy zapamiętać tę decyzję i nie pytać w przyszłości? Kliknij „OK”, aby zapamiętać.'
+              );
+            if (remember) {
+              splitPromptPrefRef.current = shouldSplit ? 'always' : 'never';
+            }
+          }
+          if (shouldSplit) {
+            changed = true;
+            messages.push(
+              `Zadanie ${formatRange(task.start, task.end)} dostosowano do nowego planu:\n${summary}`
+            );
+          } else {
+            const fallbackTask = { ...task };
+            const fallbackKind = computeKind(fallbackTask);
+            if ((fallbackTask.workKind || '') !== fallbackKind) {
+              fallbackTask.workKind = fallbackKind;
+              changed = true;
+            }
+            segmentTasks = [fallbackTask];
+          }
+        }
+
+        if (segmentTasks.length === 1 && segmentTasks[0]) {
           const seg = segmentTasks[0];
           if (
             seg.start !== task.start ||
@@ -1115,6 +1162,7 @@ export default function EmployeePanel() {
       });
 
       const merged = [];
+      const mergeCandidates = [];
       segmented.forEach((item) => {
         if (!item) return;
         const last = merged[merged.length - 1];
@@ -1134,15 +1182,46 @@ export default function EmployeePanel() {
             end: item.end
           };
           mergedTask.workKind = computeKind(mergedTask);
-          merged[merged.length - 1] = mergedTask;
-          changed = true;
-          messages.push(
-            `Po zmianie planu połączono zadania ${formatRange(last.start, last.end)} i ${formatRange(item.start, item.end)} w ${formatRange(mergedTask.start, mergedTask.end)}.`
-          );
+          const candidateMessage = `Po zmianie planu połączono zadania ${formatRange(last.start, last.end)} i ${formatRange(item.start, item.end)} w ${formatRange(mergedTask.start, mergedTask.end)}.`;
+          let shouldMerge = true;
+          if (mergePromptPrefRef.current === 'always') shouldMerge = true;
+          else if (mergePromptPrefRef.current === 'never') shouldMerge = false;
+          else if (typeof window !== 'undefined') {
+            shouldMerge = window.confirm(
+              [
+                'Zmieniony plan umożliwia połączenie następujących zadań:',
+                `• ${formatRange(last.start, last.end)}`,
+                `• ${formatRange(item.start, item.end)}`,
+                '',
+                `Po połączeniu powstanie zadanie ${formatRange(mergedTask.start, mergedTask.end)}.`,
+                '',
+                'Wybierz „OK”, aby połączyć zadania, lub „Cancel”, aby pozostawić je osobno.'
+              ].join('\n')
+            );
+            const remember =
+              typeof window !== 'undefined' &&
+              window.confirm(
+                'Czy zapamiętać tę decyzję i nie pytać w przyszłości? Kliknij „OK”, aby zapamiętać.'
+              );
+            if (remember) {
+              mergePromptPrefRef.current = shouldMerge ? 'always' : 'never';
+            }
+          }
+          if (shouldMerge) {
+            merged[merged.length - 1] = mergedTask;
+            mergeCandidates.push(candidateMessage);
+            changed = true;
+          } else {
+            merged.push(item);
+          }
         } else {
           merged.push(item);
         }
       });
+
+      if (mergeCandidates.length) {
+        messages.push(...mergeCandidates);
+      }
 
       const finalItems = merged.map((task) => {
         const wk = computeKind(task);
@@ -1156,6 +1235,93 @@ export default function EmployeePanel() {
       return { changed, items: finalItems, messages };
     },
     [selectedDate, shifts, spanStart, spanEnd]
+  );
+
+  const persistTaskDraft = useCallback(
+    async (items) => {
+      const requestContext = { employeeId: selectedEmployee?.id ?? null, dateKey: dKey };
+      if (!selectedEmployee) return null;
+      setError(null);
+      const planId = sentDay?.id || planIdFor(selectedEmployee.id, dKey);
+      const basePlan = sentDay
+        ? sanitizePlan(sentDay)
+        : {
+            id: planId,
+            employeeId: selectedEmployee.id,
+            date: dKey,
+            shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
+            note: draftDay.note || '',
+            sent: false,
+            sentAt: null,
+            logs: []
+          };
+
+      const existingSubmission = basePlan.submission ? { ...basePlan.submission } : {};
+      const itemStates = items || [];
+      const hasSentTasks = itemStates.some((task) => task._syncState === 'SENT');
+      const targetStatus = hasSentTasks ? 'SUBMITTED' : 'DRAFT';
+      const now = new Date().toISOString();
+      const normalizedItems = normalizeTaskStates(
+        items,
+        targetStatus === 'SUBMITTED' ? 'SENT' : 'DRAFT'
+      );
+      const submissionPayload = {
+        ...existingSubmission,
+        items: normalizedItems,
+        status: targetStatus,
+        submittedAt:
+          targetStatus === 'SUBMITTED'
+            ? existingSubmission.submittedAt || now
+            : null,
+        reportedMinutes: computeReported(items),
+        dayStatus: computeDayStatus(items, planned),
+        updatedAt: now
+      };
+
+      const payload = {
+        ...basePlan,
+        id: planId,
+        employeeId: selectedEmployee.id,
+        date: dKey,
+        shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
+        note: draftDay.note || '',
+        submission: {
+          ...submissionPayload,
+          items: submissionPayload.items.map(({ _syncState, ...rest }) => rest)
+        }
+      };
+
+      try {
+        const saved = await savePlan(payload);
+        setPlansByDate((prev) => {
+          const current = prev[dKey];
+          if (current && deepEqual(current, saved)) return prev;
+          return { ...prev, [dKey]: saved };
+        });
+        const nextSubmission = saved?.submission || submissionPayload;
+        const finalStatus = (() => {
+          if (!nextSubmission.items?.length) return 'DRAFT';
+          const hasSent = nextSubmission.items.some(
+            (task) => task.locked || task._syncState === 'SENT'
+          );
+          return hasSent ? 'SUBMITTED' : 'DRAFT';
+        })();
+        const result = {
+          ...nextSubmission,
+          status: finalStatus,
+          items: normalizeTaskStates(
+            nextSubmission.items,
+            finalStatus === 'SUBMITTED' ? 'SENT' : 'DRAFT'
+          )
+        };
+        if (isStaleContext(requestContext)) return null;
+        return result;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        throw err;
+      }
+    },
+    [selectedEmployee?.id, sentDay, dKey, draftDay.shifts, draftDay.note, planned, setPlansByDate, isStaleContext]
   );
   const outlookAnchorRect = outlookMenu.anchor ? outlookMenu.anchor.getBoundingClientRect() : null;
 
@@ -1365,6 +1531,21 @@ export default function EmployeePanel() {
       employeeId: selectedEmployee?.id ?? null,
       dateKey: dKey
     };
+    if (signatureChanged) {
+      planAdjustmentAlertRef.current = { signature: planSignature, shown: false };
+    }
+
+    if (!contextChanged && signatureChanged) {
+      const cachedItems = taskAdjustmentCacheRef.current.get(planSignature);
+      if (cachedItems && !deepEqual(cachedItems, taskItems)) {
+        planAdjustmentAlertRef.current = { signature: planSignature, shown: true };
+        setSubDraft((prevDraft) => ({
+          ...prevDraft,
+          items: cachedItems.map((item) => ({ ...item }))
+        }));
+        return;
+      }
+    }
 
     if (!signatureChanged) return;
     if (contextChanged) return;
@@ -1372,16 +1553,47 @@ export default function EmployeePanel() {
 
     const result = reconcileTasksAfterPlanChange(taskItems);
     if (result.changed) {
+      taskAdjustmentCacheRef.current.set(
+        planSignature,
+        result.items.map((item) => ({ ...item }))
+      );
       setSubDraft((prevDraft) => ({
         ...prevDraft,
         items: result.items
       }));
       if (typeof window !== 'undefined' && result.messages.length) {
-        const header = 'Plan dnia został zmieniony. Zadania zostały dostosowane.';
-        window.alert([header, ...result.messages].join('\n\n'));
+        const alertSignature = planAdjustmentAlertRef.current.signature;
+        const alreadyShown =
+          alertSignature === planSignature && planAdjustmentAlertRef.current.shown;
+        if (!alreadyShown) {
+          const header = 'Plan dnia został zmieniony. Zadania zostały dostosowane.';
+          window.alert([header, ...result.messages].join('\n\n'));
+          planAdjustmentAlertRef.current = { signature: planSignature, shown: true };
+        }
       }
+      (async () => {
+        try {
+          const saved = await persistTaskDraft(result.items);
+          if (saved) {
+            setSubDraft((prev) => {
+              const mergedItems = mergeSubmissionItems(prev.items || [], saved.items || []);
+              const nextStatus =
+                saved.status ||
+                (mergedItems.every((task) => task._syncState === 'SENT') ? 'SUBMITTED' : 'DRAFT');
+              return {
+                ...prev,
+                ...saved,
+                status: nextStatus,
+                items: mergedItems
+              };
+            });
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      })();
     }
-  }, [planSignature, selectedEmployee?.id, dKey, taskItems, reconcileTasksAfterPlanChange, setSubDraft]);
+  }, [planSignature, selectedEmployee?.id, dKey, taskItems, reconcileTasksAfterPlanChange, setSubDraft, persistTaskDraft]);
   const canSendTasks = selectedSendableIds.length > 0;
   useEffect(() => {
     if (!taskItems.length) {
@@ -1389,6 +1601,14 @@ export default function EmployeePanel() {
       setSplitPrompt(null);
     }
   }, [taskItems.length]);
+  useEffect(() => {
+    if (planAdjustmentAlertRef.current.signature !== planSignature) return;
+    if (!planAdjustmentAlertRef.current.shown) return;
+    taskAdjustmentCacheRef.current.set(
+      planSignature,
+      taskItems.map((item) => ({ ...item }))
+    );
+  }, [planSignature, taskItems]);
 
   const addTask = useCallback(
     () =>
@@ -1999,93 +2219,6 @@ Status: ${task.status || '-'}`;
     [setTask, shifts, taskItems, setSubDraft, selectedDate, spanEnd]
   );
 
-  const persistTaskDraft = useCallback(
-    async (items) => {
-      const requestContext = { employeeId: selectedEmployee?.id ?? null, dateKey: dKey };
-      if (!selectedEmployee) return null;
-      setError(null);
-      const planId = sentDay?.id || planIdFor(selectedEmployee.id, dKey);
-      const basePlan = sentDay
-        ? sanitizePlan(sentDay)
-        : {
-            id: planId,
-            employeeId: selectedEmployee.id,
-            date: dKey,
-            shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
-            note: draftDay.note || '',
-            sent: false,
-            sentAt: null,
-            logs: []
-          };
-
-      const existingSubmission = basePlan.submission ? { ...basePlan.submission } : {};
-      const itemStates = items || [];
-      const hasSentTasks = itemStates.some((task) => task._syncState === 'SENT');
-      const targetStatus = hasSentTasks ? 'SUBMITTED' : 'DRAFT';
-      const now = new Date().toISOString();
-      const normalizedItems = normalizeTaskStates(
-        items,
-        targetStatus === 'SUBMITTED' ? 'SENT' : 'DRAFT'
-      );
-      const submissionPayload = {
-        ...existingSubmission,
-        items: normalizedItems,
-        status: targetStatus,
-        submittedAt:
-          targetStatus === 'SUBMITTED'
-            ? existingSubmission.submittedAt || now
-            : null,
-        reportedMinutes: computeReported(items),
-        dayStatus: computeDayStatus(items, planned),
-        updatedAt: now
-      };
-
-      const payload = {
-        ...basePlan,
-        id: planId,
-        employeeId: selectedEmployee.id,
-        date: dKey,
-        shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
-        note: draftDay.note || '',
-        submission: {
-          ...submissionPayload,
-          items: submissionPayload.items.map(({ _syncState, ...rest }) => rest)
-        }
-      };
-
-      try {
-        const saved = await savePlan(payload);
-        setPlansByDate((prev) => {
-          const current = prev[dKey];
-          if (current && deepEqual(current, saved)) return prev;
-          return { ...prev, [dKey]: saved };
-        });
-        const nextSubmission = saved?.submission || submissionPayload;
-        const finalStatus = (() => {
-          if (!nextSubmission.items?.length) return 'DRAFT';
-          const hasSent = nextSubmission.items.some(
-            (task) => task.locked || task._syncState === 'SENT'
-          );
-          return hasSent ? 'SUBMITTED' : 'DRAFT';
-        })();
-        const result = {
-          ...nextSubmission,
-          status: finalStatus,
-          items: normalizeTaskStates(
-            nextSubmission.items,
-            finalStatus === 'SUBMITTED' ? 'SENT' : 'DRAFT'
-          )
-        };
-        if (isStaleContext(requestContext)) return null;
-        return result;
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-        throw err;
-      }
-    },
-    [selectedEmployee?.id, sentDay, dKey, draftDay.shifts, draftDay.note, planned, setPlansByDate, isStaleContext]
-  );
-
   const deleteTasksByIds = useCallback(
     async (ids) => {
       const existingIds = new Set(taskItems.map((item) => item.id));
@@ -2352,6 +2485,14 @@ Status: ${task.status || '-'}`;
     if (!item.start || !item.end) return acc;
     return acc + (toMinutes(item.end) - toMinutes(item.start));
   }, 0);
+  const reportedWithinPlan = Math.min(selectedPlanReported, planned);
+  const reportedOvertime = Math.max(selectedPlanReported - reportedWithinPlan, 0);
+  const reportedPlanLabel =
+    planned > 0
+      ? `${formatCompactDuration(reportedWithinPlan)} Planowo`
+      : formatCompactDuration(reportedWithinPlan);
+  const reportedOvertimeLabel =
+    reportedOvertime > 0 ? `${formatCompactDuration(reportedOvertime)} nadgodzin` : null;
 
   if (error) {
     return (
@@ -2688,11 +2829,19 @@ Status: ${task.status || '-'}`;
         <div className="flex items-center gap-2 text-sm mb-2">
           <span className={`${CHIP} ${DAY_STATUS_STYLES[displayDayStatus]}`}>{displayDayStatus}</span>
           <span className="text-slate-400">|</span>
-          <span className="text-slate-600">
+          <span className="text-base font-semibold text-slate-700">
             Plan: {spanStart && spanEnd ? `${spanStart}–${spanEnd}` : '—'} ({minutesToHHmm(planned)} h)
           </span>
           <span className="text-slate-400">/</span>
-          <span className="text-slate-600">Zgłoszono: {minutesToHHmm(selectedPlanReported)} h</span>
+          <span className="text-base font-semibold text-slate-700">
+            Zgłoszono: {reportedPlanLabel}
+            {reportedOvertimeLabel ? (
+              <>
+                {' + '}
+                <span className="text-rose-600 font-semibold">{reportedOvertimeLabel}</span>
+              </>
+            ) : null}
+          </span>
         </div>
         {taskItems.length === 0 && (
           <p className="text-sm text-slate-500">Brak zadań. Dodaj pierwsze.</p>
