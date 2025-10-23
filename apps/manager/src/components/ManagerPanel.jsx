@@ -887,11 +887,15 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
       const planMinutes = shiftsArr.reduce((acc, shift) => acc + (toMinutes(shift.end) - toMinutes(shift.start)), 0);
       const submissionEntry = plan.submission;
       const submissionActive = submissionEntry?.status === 'SUBMITTED';
-      const items = submissionActive ? submissionEntry.items || [] : [];
+      const visibleItems = submissionActive
+        ? (submissionEntry.items || []).filter((task) => task.sent !== false)
+        : [];
       const reported = submissionActive
-        ? submissionEntry.reportedMinutes ?? computeReported(items)
+        ? submissionEntry.reportedMinutes ?? computeReported(visibleItems)
         : 0;
-      const closed = items.length > 0 && items.every((task) => String(task.status || '').toLowerCase().includes('zako'));
+      const closed =
+        visibleItems.length > 0 &&
+        visibleItems.every((task) => String(task.status || '').toLowerCase().includes('zako'));
       const settled = submissionActive && planMinutes > 0 && reported >= planMinutes && closed;
       map[plan.date] = settled ? 'SETTLED' : plan.sent ? 'PLANNED' : 'NONE';
     });
@@ -915,24 +919,30 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
     sentDay?.submission && sentDay.submission.status === 'SUBMITTED'
       ? sentDay.submission
       : null;
+  const submissionItemsVisible = useMemo(
+    () => (sentSubmission?.items || []).filter((item) => item.sent !== false),
+    [sentSubmission?.items]
+  );
   const submissionItemsForDisplay = useMemo(
     () =>
       splitTasksByPlanStart(
-        sentSubmission?.items || [],
+        submissionItemsVisible,
         submissionSpan,
         selectedDate,
         submissionShifts
       ),
     [
-      sentSubmission?.items,
+      submissionItemsVisible,
       submissionSpan?.start,
       submissionSpan?.end,
       selectedDate,
       submissionShifts
     ]
   );
-  const reportedMinutesCalc = (sentSubmission?.items || []).filter((item) => item.start && item.end).reduce((acc, item) => acc + (toMinutes(item.end) - toMinutes(item.start)), 0);
-  const allDoneCalc = (sentSubmission?.items || []).length > 0 && (sentSubmission?.items || []).every((item) =>
+  const reportedMinutesCalc = submissionItemsVisible
+    .filter((item) => item.start && item.end)
+    .reduce((acc, item) => acc + (toMinutes(item.end) - toMinutes(item.start)), 0);
+  const allDoneCalc = submissionItemsVisible.length > 0 && submissionItemsVisible.every((item) =>
     String(item.status || '').toLowerCase().includes('zako')
   );
   const dayOverallSettled = !!sentSubmission && plannedMinutes > 0 && reportedMinutesCalc >= plannedMinutes && allDoneCalc;
@@ -1243,7 +1253,9 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
         if (reportDetailed) {
           const submissionEntry = plan?.submission;
           const items =
-            submissionEntry?.status === 'SUBMITTED' ? submissionEntry.items || [] : [];
+            submissionEntry?.status === 'SUBMITTED'
+              ? (submissionEntry.items || []).filter((task) => task.sent !== false)
+              : [];
           const lines = items.map(
             (item) =>
               `${item.start || ''}–${item.end || ''} ${item.type || ''} • ${item.subject || ''}${

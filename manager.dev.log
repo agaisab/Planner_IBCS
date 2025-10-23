@@ -1,0 +1,13 @@
+
+> manager@0.0.0 dev
+> vite
+
+
+  VITE v7.1.9  ready in 332 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://127.51.68.120:5173/
+  ➜  Network: http://192.168.2.139:5173/
+9:32:05 AM [vite] (client) hmr update /src/components/ManagerPanel.jsx, /src/index.css
+9:32:16 AM [vite] (client) hmr update /src/components/ManagerPanel.jsx, /src/index.css
+9:32:27 AM [vite] (client) hmr update /src/components/ManagerPanel.jsx, /src/index.css

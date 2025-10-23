@@ -80,10 +80,64 @@ const TASK_STATE_META = {
 
 const normalizeTaskStates = (items, defaultState = 'EDITED') =>
   (items || []).map((task) => {
-    const state = task._syncState || defaultState;
-    if (state === task._syncState) return task;
-    return { ...task, _syncState: state };
+    const sentFlag =
+      task.sent ??
+      (task._syncState === 'SENT' ||
+        task.prevSyncState === 'SENT' ||
+        (task.locked && defaultState === 'SENT'));
+    const fallback = sentFlag ? 'SENT' : defaultState === 'SENT' ? 'DRAFT' : defaultState;
+    const baseState = task._syncState || task.prevSyncState || fallback;
+    return {
+      ...task,
+      sent: !!sentFlag,
+      _syncState: baseState,
+      prevSyncState: baseState
+    };
   });
+
+const mergeSubmissionItems = (previous = [], incoming = []) => {
+  const mergedMap = new Map();
+  previous.forEach((item) => {
+    const fallback = item.sent ? 'SENT' : 'EDITED';
+    const baseState = item._syncState || item.prevSyncState || fallback;
+    mergedMap.set(item.id, {
+      ...item,
+      sent: !!item.sent,
+      _syncState: baseState,
+      prevSyncState: baseState
+    });
+  });
+
+  incoming.forEach((incomingItem) => {
+    const existing = mergedMap.get(incomingItem.id);
+    if (!existing) {
+      const fallback = incomingItem.sent ? 'SENT' : 'DRAFT';
+      const baseState =
+        incomingItem._syncState || incomingItem.prevSyncState || fallback;
+      mergedMap.set(incomingItem.id, {
+        ...incomingItem,
+        sent: !!incomingItem.sent,
+        _syncState: baseState,
+        prevSyncState: baseState
+      });
+      return;
+    }
+
+    const previousFallback = existing.sent ? 'SENT' : 'EDITED';
+    const previousState =
+      existing._syncState || existing.prevSyncState || previousFallback;
+    mergedMap.set(incomingItem.id, {
+      ...existing,
+      ...incomingItem,
+      locked: incomingItem.locked ?? existing.locked ?? false,
+      sent: incomingItem.sent ?? existing.sent ?? false,
+      _syncState: previousState,
+      prevSyncState: previousState
+    });
+  });
+
+  return Array.from(mergedMap.values());
+};
 
 const formatTimeLabel = (value) => {
   if (!value) return '—';
@@ -452,7 +506,6 @@ const TaskRow = memo(function TaskRow({
               ? 'border-sky-500 bg-sky-50 text-sky-600 shadow-md'
               : 'border-slate-300 bg-slate-100 text-slate-400 hover:border-sky-300 hover:bg-slate-50 hover:shadow-md'
           )}
-          disabled={task._syncState === 'SENT'}
           aria-pressed={selected}
           aria-label={selected ? 'Odznacz zadanie' : 'Zaznacz zadanie'}
         >
@@ -929,6 +982,20 @@ export default function EmployeePanel() {
     [shifts]
   );
   const planContextRef = useRef({ signature: null, employeeId: null, dateKey: null });
+  const viewContextRef = useRef({ employeeId: null, dateKey: null });
+  useEffect(() => {
+    viewContextRef.current = {
+      employeeId: selectedEmployee?.id ?? null,
+      dateKey: dKey
+    };
+  }, [selectedEmployee?.id, dKey]);
+  const isStaleContext = useCallback(
+    (ctx) => {
+      const current = viewContextRef.current;
+      return current.employeeId !== ctx.employeeId || current.dateKey !== ctx.dateKey;
+    },
+    []
+  );
   const reconcileTasksAfterPlanChange = useCallback(
     (items) => {
       const planStartMinutesSpan = spanStart ? toMinutes(spanStart) : null;
@@ -1185,10 +1252,7 @@ export default function EmployeePanel() {
 
     const payload = {
       ...nextPlanState,
-      submission: {
-        ...submission,
-        items: submission.items.map(({ _syncState, ...rest }) => rest)
-      },
+      ...(base.submission ? { submission: { ...base.submission } } : {}),
       logs
     };
     try {
@@ -1210,31 +1274,39 @@ export default function EmployeePanel() {
 
   const submitted = sentDay?.submission;
   const emptyDraft = { status: 'DRAFT', dayStatus: 'W trakcie', items: [] };
-  const [subDraft, setSubDraft] = useState(() =>
-    submitted
-      ? {
-          ...submitted,
-          items: normalizeTaskStates(
-            submitted.items,
-            submitted.status === 'SUBMITTED' ? 'SENT' : 'DRAFT'
-          )
-        }
-      : emptyDraft
-  );
+  const [subDraft, setSubDraft] = useState(() => {
+    if (!submitted) return emptyDraft;
+    return {
+      ...submitted,
+      items: normalizeTaskStates(
+        submitted.items,
+        submitted.status === 'SUBMITTED' ? 'SENT' : 'DRAFT'
+      )
+    };
+  });
   useEffect(() => {
-    setSubDraft(
-      submitted
-        ? {
-            ...submitted,
-            items: normalizeTaskStates(
-              submitted.items,
-              submitted.status === 'SUBMITTED' ? 'SENT' : 'DRAFT'
-            )
-          }
-        : emptyDraft
+    if (!submitted) {
+      setSubDraft(emptyDraft);
+      setSelectedTaskIds([]);
+      return;
+    }
+    const normalizedIncoming = normalizeTaskStates(
+      submitted.items,
+      submitted.status === 'SUBMITTED' ? 'SENT' : 'DRAFT'
     );
+    const status =
+      submitted.status ||
+      (normalizedIncoming.some((task) => task._syncState === 'SENT') ? 'SUBMITTED' : 'DRAFT');
+    const dayStateDerived = submitted.dayStatus || computeDayStatus(normalizedIncoming, planned);
+    setSubDraft({
+      ...submitted,
+      status,
+      dayStatus: dayStateDerived,
+      submittedAt: submitted.submittedAt || null,
+      items: normalizedIncoming
+    });
     setSelectedTaskIds([]);
-  }, [submitted?.submittedAt, submitted?.status, submitted?.items, selectedEmployee?.id, dKey]);
+  }, [submitted?.submittedAt, submitted?.status, submitted?.items, selectedEmployee?.id, dKey, planned]);
 
   const displayDayStatus = submitted
     ? submitted.dayStatus || computeDayStatus(submitted.items, planned)
@@ -1249,20 +1321,28 @@ export default function EmployeePanel() {
     }
     setSelectedTaskIds((prev) => prev.filter((id) => taskItems.some((item) => item.id === id)));
   }, [taskItems]);
+  const selectableTaskIds = useMemo(
+    () => taskItems.map((item) => item.id).filter(Boolean),
+    [taskItems]
+  );
+  const sendableTaskIds = useMemo(
+    () => taskItems.filter((item) => item._syncState !== 'SENT').map((item) => item.id),
+    [taskItems]
+  );
+  const selectedSendableIds = useMemo(
+    () => selectedTaskIds.filter((id) => sendableTaskIds.includes(id)),
+    [selectedTaskIds, sendableTaskIds]
+  );
   const toggleTaskSelection = useCallback(
     (id) => {
       const task = taskItems.find((item) => item.id === id);
-      if (!task || task._syncState === 'SENT') return;
+      if (!task) return;
       setSelectedTaskIds((prev) =>
         prev.includes(id)
           ? prev.filter((existingId) => existingId !== id)
           : [...prev, id]
       );
     },
-    [taskItems]
-  );
-  const selectableTaskIds = useMemo(
-    () => taskItems.filter((item) => item._syncState !== 'SENT').map((item) => item.id),
     [taskItems]
   );
   const allTasksSelected =
@@ -1302,7 +1382,7 @@ export default function EmployeePanel() {
       }
     }
   }, [planSignature, selectedEmployee?.id, dKey, taskItems, reconcileTasksAfterPlanChange, setSubDraft]);
-  const canSendTasks = selectedTaskIds.some((id) => selectableTaskIds.includes(id));
+  const canSendTasks = selectedSendableIds.length > 0;
   useEffect(() => {
     if (!taskItems.length) {
       setTaskActionsMenu({ id: null, rect: null });
@@ -1339,6 +1419,7 @@ export default function EmployeePanel() {
               end: defaultEnd,
               workKind: 'Zwykłe',
               status: 'Planowane',
+              sent: false,
               _syncState: 'EDITED'
             }
           ]
@@ -1365,6 +1446,7 @@ export default function EmployeePanel() {
         workKind: 'Zwykłe',
         status: 'Planowane',
         locked: false,
+        sent: false,
         _syncState: 'EDITED'
       };
     });
@@ -1382,7 +1464,13 @@ export default function EmployeePanel() {
         items: (prev.items || []).map((item) => {
           if (item.id !== id) return item;
           const next = { ...item, ...patch };
-          if (!next.locked) next._syncState = 'EDITED';
+          if (!next.locked) {
+            next._syncState = 'EDITED';
+            next.prevSyncState = 'EDITED';
+            next.sent = false;
+          } else if (typeof next.sent === 'undefined') {
+            next.sent = item.sent ?? false;
+          }
           return next;
         })
       })),
@@ -1720,6 +1808,7 @@ Status: ${task.status || '-'}`;
                 ...segment,
                 id: segIndex === baseSegments.length - 1 ? id : `t${timestamp + segIndex}`,
                 locked: false,
+                sent: false,
                 _syncState: 'EDITED'
               }));
 
@@ -1765,6 +1854,7 @@ Status: ${task.status || '-'}`;
               id: overtimeId,
               start: spanEnd,
               locked: false,
+              sent: false,
               _syncState: 'EDITED'
             };
             updated.splice(index + 1, 0, overtimeTask);
@@ -1816,6 +1906,7 @@ Status: ${task.status || '-'}`;
             const firstTask = {
               ...nextTask,
               end: nightLabel,
+              sent: !!nextTask.sent && !!nextTask.locked,
               _syncState: nextTask.locked ? 'SENT' : 'EDITED'
             };
             const secondTask = {
@@ -1823,6 +1914,7 @@ Status: ${task.status || '-'}`;
               id: newTaskId,
               start: nightLabel,
               locked: false,
+              sent: false,
               _syncState: 'EDITED'
             };
 
@@ -1894,6 +1986,7 @@ Status: ${task.status || '-'}`;
               workKind: 'Zwykłe',
               status: 'Planowane',
               locked: false,
+              sent: false,
               _syncState: 'EDITED'
             };
             updatedItems.splice(index + 1, 0, followup);
@@ -1908,6 +2001,7 @@ Status: ${task.status || '-'}`;
 
   const persistTaskDraft = useCallback(
     async (items) => {
+      const requestContext = { employeeId: selectedEmployee?.id ?? null, dateKey: dKey };
       if (!selectedEmployee) return null;
       setError(null);
       const planId = sentDay?.id || planIdFor(selectedEmployee.id, dKey);
@@ -1925,12 +2019,9 @@ Status: ${task.status || '-'}`;
           };
 
       const existingSubmission = basePlan.submission ? { ...basePlan.submission } : {};
-      const hasSentTasks = (items || []).some((task) => task._syncState === 'SENT');
-      const targetStatus = hasSentTasks
-        ? 'SUBMITTED'
-        : existingSubmission.status === 'SUBMITTED'
-        ? 'SUBMITTED'
-        : 'DRAFT';
+      const itemStates = items || [];
+      const hasSentTasks = itemStates.some((task) => task._syncState === 'SENT');
+      const targetStatus = hasSentTasks ? 'SUBMITTED' : 'DRAFT';
       const now = new Date().toISOString();
       const normalizedItems = normalizeTaskStates(
         items,
@@ -1970,53 +2061,70 @@ Status: ${task.status || '-'}`;
           return { ...prev, [dKey]: saved };
         });
         const nextSubmission = saved?.submission || submissionPayload;
-        return {
+        const finalStatus = (() => {
+          if (!nextSubmission.items?.length) return 'DRAFT';
+          const hasSent = nextSubmission.items.some(
+            (task) => task.locked || task._syncState === 'SENT'
+          );
+          return hasSent ? 'SUBMITTED' : 'DRAFT';
+        })();
+        const result = {
           ...nextSubmission,
+          status: finalStatus,
           items: normalizeTaskStates(
             nextSubmission.items,
-            nextSubmission.status === 'SUBMITTED' ? 'SENT' : 'DRAFT'
+            finalStatus === 'SUBMITTED' ? 'SENT' : 'DRAFT'
           )
         };
+        if (isStaleContext(requestContext)) return null;
+        return result;
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
         throw err;
       }
     },
-    [selectedEmployee?.id, sentDay, dKey, draftDay.shifts, draftDay.note, planned, setPlansByDate]
+    [selectedEmployee?.id, sentDay, dKey, draftDay.shifts, draftDay.note, planned, setPlansByDate, isStaleContext]
   );
 
   const deleteTasksByIds = useCallback(
     async (ids) => {
-      const uniqueIds = [...new Set(ids)].filter((taskId) => {
-        if (!taskId) return false;
-        return taskItems.some((item) => item.id === taskId);
-      });
+      const existingIds = new Set(taskItems.map((item) => item.id));
+      const uniqueIds = [...new Set(ids)].filter((taskId) => existingIds.has(taskId));
       if (!uniqueIds.length) return;
-      const remaining = taskItems.filter((item) => !uniqueIds.includes(item.id));
+      const removalSet = new Set(uniqueIds);
+      const remaining = taskItems
+        .filter((item) => !removalSet.has(item.id))
+        .map((item) => ({ ...item }));
       if (remaining.length === taskItems.length) return;
-      const normalizedRemaining = normalizeTaskStates(remaining, 'DRAFT');
-      const nextDayStatus = normalizedRemaining.length
-        ? computeDayStatus(normalizedRemaining, planned)
-        : 'W trakcie';
+      const hasSentAfterDelete = remaining.some((task) => task._syncState === 'SENT');
+      const nextDayStatus = remaining.length ? computeDayStatus(remaining, planned) : 'W trakcie';
+      const nextStatus = hasSentAfterDelete ? 'SUBMITTED' : 'DRAFT';
       setSubDraft((prev) => ({
         ...prev,
-        status: normalizedRemaining.some((task) => task._syncState === 'SENT')
-          ? 'SUBMITTED'
-          : 'DRAFT',
+        status: nextStatus,
         dayStatus: nextDayStatus,
-        items: normalizedRemaining
+        items: remaining
       }));
-      setSelectedTaskIds((prev) => prev.filter((itemId) => !uniqueIds.includes(itemId)));
+      setSelectedTaskIds((prev) => prev.filter((itemId) => !removalSet.has(itemId)));
       try {
         const savedSubmission = await persistTaskDraft(remaining);
         if (savedSubmission) {
-          setSubDraft((prev) => (deepEqual(prev, savedSubmission) ? prev : savedSubmission));
+          setSubDraft((prev) => {
+            const mergedItems = mergeSubmissionItems(prev.items || [], savedSubmission.items || []);
+            const nextStatus = savedSubmission.status || (mergedItems.every((task) => task._syncState === 'SENT') ? 'SUBMITTED' : 'DRAFT');
+            return {
+              ...prev,
+              ...savedSubmission,
+              status: nextStatus,
+              items: mergedItems
+            };
+          });
         }
       } catch (err) {
         console.error(err);
       }
     },
-    [taskItems, persistTaskDraft]
+    [taskItems, persistTaskDraft, planned]
   );
 
   const handleTaskLock = useCallback(
@@ -2024,8 +2132,14 @@ Status: ${task.status || '-'}`;
       const previousItems = taskItems.map((item) => ({ ...item }));
       const nextItems = previousItems.map((item) => {
         if (item.id !== id) return item;
-        const nextState = item._syncState === 'SENT' ? 'SENT' : 'DRAFT';
-        return { ...item, locked: true, _syncState: nextState };
+        const baseState = item._syncState || item.prevSyncState || (item.locked ? 'SENT' : 'EDITED');
+        const nextState = baseState === 'SENT' ? 'SENT' : 'DRAFT';
+        return {
+          ...item,
+          locked: true,
+          _syncState: nextState,
+          prevSyncState: nextState
+        };
       });
 
       setSubDraft((prev) => ({
@@ -2037,7 +2151,16 @@ Status: ${task.status || '-'}`;
       try {
         const savedSubmission = await persistTaskDraft(nextItems);
         if (savedSubmission) {
-          setSubDraft((prev) => (deepEqual(prev, savedSubmission) ? prev : savedSubmission));
+          setSubDraft((prev) => {
+            const mergedItems = mergeSubmissionItems(prev.items || [], savedSubmission.items || []);
+            const nextStatus = savedSubmission.status || (mergedItems.every((task) => task._syncState === 'SENT') ? 'SUBMITTED' : 'DRAFT');
+            return {
+              ...prev,
+              ...savedSubmission,
+              status: nextStatus,
+              items: mergedItems
+            };
+          });
         }
       } catch (err) {
         console.error(err);
@@ -2052,7 +2175,7 @@ Status: ${task.status || '-'}`;
 
   const handleTaskUnlock = useCallback(
     (id) => {
-      setTask(id, { locked: false, _syncState: 'EDITED' });
+      setTask(id, { locked: false, sent: false, _syncState: 'EDITED' });
       closeTaskActions();
     },
     [setTask, closeTaskActions]
@@ -2074,25 +2197,31 @@ Status: ${task.status || '-'}`;
       }
       return;
     }
-    const tasksToSend = taskItems.filter(
-      (item) => selectedTaskIds.includes(item.id) && item._syncState !== 'SENT'
-    );
-    if (!tasksToSend.length) {
+    const tasksToSendIds = selectedSendableIds;
+    if (!tasksToSendIds.length) {
       if (typeof window !== 'undefined') {
         window.alert('Brak zaznaczonych zadań do wysłania.');
       }
       return;
     }
+    const requestContext = { employeeId: selectedEmployee.id, dateKey: dKey };
     setSendingTasks(true);
     setError(null);
     const now = new Date().toISOString();
-    const items = tasksToSend.map((item) => ({
-      ...item,
-      workKind: wkOf(item),
-      _syncState: 'SENT'
-    }));
-    const reported = computeReported(items);
-    const dayState = computeDayStatus(items, planned);
+    const selectedSet = new Set(tasksToSendIds);
+    const nextItems = taskItems.map((item) => {
+      const next = { ...item };
+      if (selectedSet.has(item.id)) {
+        next.workKind = wkOf(next);
+        next.locked = true;
+        next._syncState = 'SENT';
+        next.prevSyncState = 'SENT';
+        next.sent = true;
+      }
+      return next;
+    });
+    const reported = computeReported(nextItems);
+    const dayState = computeDayStatus(nextItems, planned);
     const planId = sentDay?.id || planIdFor(selectedEmployee.id, dKey);
     const base = sentDay
       ? sanitizePlan(sentDay)
@@ -2106,10 +2235,13 @@ Status: ${task.status || '-'}`;
           sentAt: null,
           logs: []
         };
+    const submissionStatus = nextItems.some((task) => task._syncState === 'SENT')
+      ? 'SUBMITTED'
+      : 'DRAFT';
     const submission = {
       ...(base.submission || {}),
-      items,
-      status: 'SUBMITTED',
+      items: nextItems,
+      status: submissionStatus,
       submittedAt: now,
       reportedMinutes: reported,
       dayStatus: dayState
@@ -2127,7 +2259,7 @@ Status: ${task.status || '-'}`;
     };
 
     const planMessages = describePlanChanges(base, nextPlanState);
-    const taskMessages = describeTaskChanges(base.submission?.items || [], items);
+    const taskMessages = describeTaskChanges(base.submission?.items || [], nextItems);
 
     const logs = buildTaskLogs({
       baseLogs: base.logs,
@@ -2135,7 +2267,7 @@ Status: ${task.status || '-'}`;
       taskMessages,
       now,
       actorLabel: 'Pracownik',
-      submitCount: items.length,
+      submitCount: tasksToSendIds.length,
       planEditType: 'EMP_PLAN_EDIT',
       taskEditType: 'EMP_TASK_EDIT',
       submitType: 'EMP_SUBMIT'
@@ -2143,9 +2275,12 @@ Status: ${task.status || '-'}`;
 
     const payload = {
       ...nextPlanState,
+      submission: {
+        ...submission,
+        items: submission.items.map(({ _syncState, prevSyncState, ...rest }) => rest)
+      },
       logs
     };
-    const sentMap = new Map(items.map((item) => [item.id, item]));
     try {
       await savePlan(payload);
       setPlansByDate((prev) => {
@@ -2154,29 +2289,17 @@ Status: ${task.status || '-'}`;
         return { ...prev, [dKey]: payload };
       });
       const nextDraft = { ...payload, dirty: false };
-      setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
-      setSubDraft((prev) => {
-        const prevItems = prev.items || [];
-        const nextItems = prevItems.map((task) => {
-          const sent = sentMap.get(task.id);
-          if (!sent) return task;
-          return { ...task, ...sent, locked: true };
-        });
-        // append any newly sent tasks that were not previously in the list (shouldn't happen but guard)
-        sentMap.forEach((sentTask, sentId) => {
-          if (!prevItems.some((task) => task.id === sentId)) {
-            nextItems.push({ ...sentTask, locked: true });
-          }
-        });
-        return {
+      if (!isStaleContext(requestContext)) {
+        setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
+        setSubDraft((prev) => ({
           ...prev,
-          status: 'SUBMITTED',
+          status: submissionStatus,
           submittedAt: now,
           dayStatus: dayState,
           items: nextItems
-        };
-      });
-      setSelectedTaskIds([]);
+        }));
+        setSelectedTaskIds([]);
+      }
       await refreshEmployeePlans();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -2584,12 +2707,11 @@ Status: ${task.status || '-'}`;
                       type="button"
                       onClick={toggleAllTasks}
                       className={cls(
-                        'inline-flex items-center justify-center h-6 w-6 rounded-full border-2 transition-all shadow-sm focus:outline-none focus:ring-1 focus:ring-sky-400 focus:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed',
+                        'inline-flex items-center justify-center h-6 w-6 rounded-full border-2 transition-all shadow-sm focus:outline-none focus:ring-1 focus:ring-sky-400 focus:ring-offset-2',
                         allTasksSelected
                           ? 'border-sky-500 bg-sky-50 text-sky-600 shadow-md'
                           : 'border-slate-300 bg-slate-100 text-slate-400 hover:border-sky-300 hover:bg-slate-50 hover:shadow-md'
                       )}
-                      disabled={selectableTaskIds.length === 0}
                       aria-pressed={allTasksSelected}
                       aria-label={allTasksSelected ? 'Odznacz wszystkie zadania' : 'Zaznacz wszystkie zadania'}
                     >
