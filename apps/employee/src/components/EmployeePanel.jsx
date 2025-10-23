@@ -278,15 +278,16 @@ const formatCompactDuration = (mins) => {
   return parts.join(' ');
 };
 
-function TimeSelect({ value, onChange, placeholder, disabled }) {
+function TimeSelect({ value, onChange, placeholder, disabled, size = 'compact' }) {
   const v = value ?? '';
   const opts = v && !timeOptions15.includes(v) ? [v, ...timeOptions15] : timeOptions15;
+  const widthClass = size === 'plan' ? 'w-[6rem]' : 'w-[5rem]';
   return (
     <select
       value={v}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
-      className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+      className={`mt-1 ${widthClass} rounded-xl border-2 border-slate-300 px-1.5 py-2 font-mono tabular-nums text-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed`}
     >
       <option value="">{placeholder || '—'}</option>
       {opts.map((o) => (
@@ -994,8 +995,7 @@ export default function EmployeePanel() {
   const planContextRef = useRef({ signature: null, employeeId: null, dateKey: null });
   const planAdjustmentAlertRef = useRef({ signature: null, shown: false });
   const taskAdjustmentCacheRef = useRef(new Map());
-  const mergePromptPrefRef = useRef('ask');
-  const splitPromptPrefRef = useRef('ask');
+  const adjustmentPreferencesRef = useRef(new Map());
   const viewContextRef = useRef({ employeeId: null, dateKey: null });
   useEffect(() => {
     viewContextRef.current = {
@@ -1003,6 +1003,12 @@ export default function EmployeePanel() {
       dateKey: dKey
     };
   }, [selectedEmployee?.id, dKey]);
+  useEffect(() => {
+    if (!planSignature) return;
+    if (!adjustmentPreferencesRef.current.has(planSignature)) {
+      adjustmentPreferencesRef.current.set(planSignature, { split: null, merge: null });
+    }
+  }, [planSignature]);
   const isStaleContext = useCallback(
     (ctx) => {
       const current = viewContextRef.current;
@@ -1106,29 +1112,27 @@ export default function EmployeePanel() {
           });
 
         if (segmentTasks.length > 1) {
+          const baseKind = computeKind(task);
+          const requiresSplit = segmentTasks.some((seg) => (seg.workKind || baseKind) !== baseKind);
           const summary = segmentTasks
             .map((seg) => `• ${formatRange(seg.start, seg.end)} (${seg.workKind})`)
             .join('\n');
-          let shouldSplit = true;
-          if (splitPromptPrefRef.current === 'always') shouldSplit = true;
-          else if (splitPromptPrefRef.current === 'never') shouldSplit = false;
-          else if (typeof window !== 'undefined') {
-            shouldSplit = window.confirm(
-              [
-                'Zmieniony plan sugeruje podział zadania na kilka odcinków:',
-                summary,
-                '',
-                'Wybierz „OK”, aby rozdzielić zadanie, lub „Cancel”, aby pozostawić je bez zmian.'
-              ].join('\n')
-            );
-            const remember =
-              typeof window !== 'undefined' &&
-              window.confirm(
-                'Czy zapamiętać tę decyzję i nie pytać w przyszłości? Kliknij „OK”, aby zapamiętać.'
-              );
-            if (remember) {
-              splitPromptPrefRef.current = shouldSplit ? 'always' : 'never';
-            }
+          const prefs = adjustmentPreferencesRef.current.get(planSignature) || { split: null, merge: null };
+          let shouldSplit = prefs.split;
+          if (requiresSplit) {
+            shouldSplit = true;
+          } else if (shouldSplit === null) {
+            shouldSplit = typeof window !== 'undefined'
+              ? window.confirm(
+                  [
+                    'Zmieniony plan sugeruje podział zadania na kilka odcinków:',
+                    summary,
+                    '',
+                    'Czy chcesz rozdzielić zadanie zgodnie z nowym planem?'
+                  ].join('\n')
+                )
+              : true;
+            adjustmentPreferencesRef.current.set(planSignature, { ...prefs, split: shouldSplit });
           }
           if (shouldSplit) {
             changed = true;
@@ -1161,76 +1165,17 @@ export default function EmployeePanel() {
         segmented.push(...segmentTasks);
       });
 
-      const merged = [];
-      const mergeCandidates = [];
-      segmented.forEach((item) => {
-        if (!item) return;
-        const last = merged[merged.length - 1];
-        if (
-          last &&
-          last.end === item.start &&
-          (last.type || '') === (item.type || '') &&
-          (last.subject || '') === (item.subject || '') &&
-          (last.client || '') === (item.client || '') &&
-          (last.project || '') === (item.project || '') &&
-          (last.status || '') === (item.status || '') &&
-          !!last.locked === !!item.locked &&
-          (last.workKind || '') === (item.workKind || '')
-        ) {
-          const mergedTask = {
-            ...last,
-            end: item.end
-          };
-          mergedTask.workKind = computeKind(mergedTask);
-          const candidateMessage = `Po zmianie planu połączono zadania ${formatRange(last.start, last.end)} i ${formatRange(item.start, item.end)} w ${formatRange(mergedTask.start, mergedTask.end)}.`;
-          let shouldMerge = true;
-          if (mergePromptPrefRef.current === 'always') shouldMerge = true;
-          else if (mergePromptPrefRef.current === 'never') shouldMerge = false;
-          else if (typeof window !== 'undefined') {
-            shouldMerge = window.confirm(
-              [
-                'Zmieniony plan umożliwia połączenie następujących zadań:',
-                `• ${formatRange(last.start, last.end)}`,
-                `• ${formatRange(item.start, item.end)}`,
-                '',
-                `Po połączeniu powstanie zadanie ${formatRange(mergedTask.start, mergedTask.end)}.`,
-                '',
-                'Wybierz „OK”, aby połączyć zadania, lub „Cancel”, aby pozostawić je osobno.'
-              ].join('\n')
-            );
-            const remember =
-              typeof window !== 'undefined' &&
-              window.confirm(
-                'Czy zapamiętać tę decyzję i nie pytać w przyszłości? Kliknij „OK”, aby zapamiętać.'
-              );
-            if (remember) {
-              mergePromptPrefRef.current = shouldMerge ? 'always' : 'never';
-            }
-          }
-          if (shouldMerge) {
-            merged[merged.length - 1] = mergedTask;
-            mergeCandidates.push(candidateMessage);
+      const finalItems = segmented
+        .slice()
+        .sort((a, b) => toMinutes(a.start) - toMinutes(b.start))
+        .map((task) => {
+          const wk = computeKind(task);
+          if ((task.workKind || '') !== wk) {
             changed = true;
-          } else {
-            merged.push(item);
+            return { ...task, workKind: wk };
           }
-        } else {
-          merged.push(item);
-        }
-      });
-
-      if (mergeCandidates.length) {
-        messages.push(...mergeCandidates);
-      }
-
-      const finalItems = merged.map((task) => {
-        const wk = computeKind(task);
-        if ((task.workKind || '') !== wk) {
-          changed = true;
-          return { ...task, workKind: wk };
-        }
-        return task;
-      });
+          return task;
+        });
 
       return { changed, items: finalItems, messages };
     },
@@ -1957,6 +1902,31 @@ Status: ${task.status || '-'}`;
       const nextTask = { ...targetTask, ...patch };
       const nightBoundaryMinutes = 22 * 60;
       const nightEarlyBoundaryMinutes = 6 * 60;
+      const splitByNightBoundaries = (taskToSplit) => {
+        const start = toMinutes(taskToSplit.start);
+        const end = toMinutes(taskToSplit.end);
+        if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) return [taskToSplit];
+        const boundaries = [];
+        if (start < nightEarlyBoundaryMinutes && end > nightEarlyBoundaryMinutes) boundaries.push(nightEarlyBoundaryMinutes);
+        if (start < nightBoundaryMinutes && end > nightBoundaryMinutes) boundaries.push(nightBoundaryMinutes);
+        if (!boundaries.length) return [taskToSplit];
+        const sorted = boundaries.sort((a, b) => a - b);
+        const rawSegments = [];
+        let cursor = start;
+        for (const boundary of sorted) {
+          if (boundary <= cursor || boundary >= end) continue;
+          rawSegments.push([cursor, boundary]);
+          cursor = boundary;
+        }
+        rawSegments.push([cursor, end]);
+        return rawSegments
+          .filter(([segStart, segEnd]) => segEnd > segStart)
+          .map(([segStart, segEnd]) => ({
+            ...taskToSplit,
+            start: minutesToHHmm(segStart),
+            end: minutesToHHmm(segEnd)
+          }));
+      };
       const planEndMinutesSpan = spanEnd ? toMinutes(spanEnd) : null;
       const planStartMinutesSpan = spanStart ? toMinutes(spanStart) : null;
       const startMinutes = toMinutes(nextTask.start);
@@ -2059,7 +2029,17 @@ Status: ${task.status || '-'}`;
         }
 
         if (shouldSplitOvertime) {
-          const overtimeId = `t${Date.now()}`;
+          const timestamp = Date.now();
+          const overtimeId = `t${timestamp}`;
+          const overtimeBase = {
+            ...nextTask,
+            id: overtimeId,
+            start: spanEnd,
+            locked: false,
+            sent: false,
+            _syncState: 'EDITED'
+          };
+          const overtimeSegments = splitByNightBoundaries(overtimeBase);
           setSubDraft((prev) => {
             const items = prev.items || [];
             const index = items.findIndex((item) => item.id === id);
@@ -2068,16 +2048,14 @@ Status: ${task.status || '-'}`;
             const updated = items.map((item, i) =>
               i === index ? { ...item, ...patch, end: spanEnd } : item
             );
-
-            const overtimeTask = {
-              ...nextTask,
-              id: overtimeId,
-              start: spanEnd,
+            const preparedSegments = overtimeSegments.map((segment, segIdx) => ({
+              ...segment,
+              id: segIdx === 0 ? overtimeId : `${overtimeId}-${segIdx}`,
               locked: false,
               sent: false,
               _syncState: 'EDITED'
-            };
-            updated.splice(index + 1, 0, overtimeTask);
+            }));
+            updated.splice(index + 1, 0, ...preparedSegments);
 
             return { ...prev, items: updated };
           });
@@ -2092,20 +2070,11 @@ Status: ${task.status || '-'}`;
         startMinutes < nightBoundaryMinutes &&
         endMinutes > nightBoundaryMinutes;
 
-      if (crossesNight && computeWorkKindFor(nextTask, selectedDate, shifts) === 'Nocne') {
-        const nightLabel = minutesToHHmm(nightBoundaryMinutes);
-        let shouldSplit = true;
-
-        if (typeof window !== 'undefined') {
-          const message = [
-            `Zadanie ${nextTask.start || '—'}–${nextTask.end || '—'} obejmuje zarówno nadgodziny, jak i godziny nocne.`,
-            `Czy chcesz rozdzielić je na dwa zadania: ${nextTask.start || '—'}–${nightLabel} oraz ${nightLabel}–${nextTask.end || '—'}?`
-          ].join('\n');
-          shouldSplit = window.confirm(message);
-        }
-
-        if (shouldSplit) {
-          const newTaskId = `t${Date.now()}`;
+      if (crossesNight) {
+        const baseKind = computeWorkKindFor(nextTask, selectedDate, shifts);
+        if (baseKind === 'Nocne' || baseKind === '+ 50%') {
+          const timestamp = Date.now();
+          const segments = splitByNightBoundaries(nextTask);
           setSubDraft((prev) => {
             const items = prev.items || [];
             const index = items.findIndex((item) => item.id === id);
@@ -2114,31 +2083,15 @@ Status: ${task.status || '-'}`;
             const updated = [...items];
             updated.splice(index, 1);
 
-            if (
-              nextTask.end &&
-              updated[index] &&
-              updated[index].start === nightLabel &&
-              updated[index].end === nextTask.end
-            ) {
-              updated.splice(index, 1);
-            }
+            const prepared = segments.map((segment, segIdx) => ({
+              ...segment,
+              id: segIdx === 0 ? id : `t${timestamp + segIdx}`,
+              locked: segIdx === 0 ? nextTask.locked : false,
+              sent: segIdx === 0 ? !!nextTask.sent && !!nextTask.locked : false,
+              _syncState: segIdx === 0 && nextTask.locked ? 'SENT' : 'EDITED'
+            }));
 
-            const firstTask = {
-              ...nextTask,
-              end: nightLabel,
-              sent: !!nextTask.sent && !!nextTask.locked,
-              _syncState: nextTask.locked ? 'SENT' : 'EDITED'
-            };
-            const secondTask = {
-              ...nextTask,
-              id: newTaskId,
-              start: nightLabel,
-              locked: false,
-              sent: false,
-              _syncState: 'EDITED'
-            };
-
-            updated.splice(index, 0, firstTask, secondTask);
+            updated.splice(index, 0, ...prepared);
             return { ...prev, items: updated };
           });
           return;
@@ -2169,18 +2122,37 @@ Status: ${task.status || '-'}`;
         return;
       }
 
-      const nextStartMinutes = currentItems
-        .filter((item) => item.id !== id && item.start)
-        .map((item) => toMinutes(item.start))
-        .filter((value) => Number.isFinite(value) && value > newEndMinutes);
+      const otherTasks = currentItems
+        .filter((item) => item.id !== id && item.start && item.end)
+        .map((item) => ({
+          start: toMinutes(item.start),
+          end: toMinutes(item.end)
+        }))
+        .filter((entry) => Number.isFinite(entry.start) && Number.isFinite(entry.end) && entry.end > entry.start)
+        .sort((a, b) => a.start - b.start);
 
-      const earliestNext = nextStartMinutes.length ? Math.min(...nextStartMinutes) : Infinity;
+      let coveredUntil = newEndMinutes;
+      for (const task of otherTasks) {
+        if (task.end <= coveredUntil) continue;
+        if (task.start > coveredUntil) break;
+        coveredUntil = Math.max(coveredUntil, task.end);
+      }
+
+      const nextStartAfterCoverage = otherTasks
+        .map((task) => task.start)
+        .find((start) => start > coveredUntil);
+
+      const earliestNext = Number.isFinite(nextStartAfterCoverage)
+        ? nextStartAfterCoverage
+        : Infinity;
+      const gapStartMinutes = coveredUntil;
       const gapEndMinutes = Math.min(planEndMinutes, earliestNext);
 
       let shouldAddFollowup = false;
-      if (gapEndMinutes > newEndMinutes && typeof window !== 'undefined') {
+      if (gapEndMinutes > gapStartMinutes && typeof window !== 'undefined') {
+        const gapStart = minutesToHHmm(gapStartMinutes);
         const gapEnd = minutesToHHmm(gapEndMinutes);
-        const message = `Pozostał wolny czas od ${patch.end} do ${gapEnd}. Czy dodać nowe zadanie?`;
+        const message = `Pozostał wolny czas od ${gapStart} do ${gapEnd}. Czy dodać nowe zadanie?`;
         shouldAddFollowup = window.confirm(message);
       }
 
@@ -2193,7 +2165,8 @@ Status: ${task.status || '-'}`;
 
         if (shouldAddFollowup) {
           const gapEnd = minutesToHHmm(gapEndMinutes);
-          if (patch.end && gapEnd && patch.end !== gapEnd) {
+          const gapStart = minutesToHHmm(gapStartMinutes);
+          if (gapStart && gapEnd && gapStart !== gapEnd) {
             const baseTask = updatedItems[index];
             const followup = {
               id: `t${Date.now()}`,
@@ -2201,7 +2174,7 @@ Status: ${task.status || '-'}`;
               subject: '',
               client: '',
               project: '',
-              start: patch.end,
+              start: gapStart,
               end: gapEnd,
               workKind: 'Zwykłe',
               status: 'Planowane',
@@ -2644,6 +2617,7 @@ Status: ${task.status || '-'}`;
                             value={segment.start}
                             onChange={(value) => setSegField(idx, 'start', value)}
                             disabled={disableTimes}
+                            size="plan"
                           />
                         </label>
                         <label className="text-sm block">
@@ -2652,6 +2626,7 @@ Status: ${task.status || '-'}`;
                             value={segment.end}
                             onChange={(value) => setSegField(idx, 'end', value)}
                             disabled={disableTimes}
+                            size="plan"
                           />
                         </label>
                         <label className="text-sm block">
@@ -2946,7 +2921,14 @@ Status: ${task.status || '-'}`;
         <div className="mt-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <button
-              onClick={() => deleteTasksByIds(selectedTaskIds)}
+              onClick={() => {
+                if (!selectedTaskIds.length) return;
+                const confirmed = typeof window === 'undefined'
+                  ? true
+                  : window.confirm('Czy na pewno usunąć zaznaczone zadania?');
+                if (!confirmed) return;
+                deleteTasksByIds(selectedTaskIds);
+              }}
               className={cls(
                 BTN,
                 'border-rose-300 text-rose-600 hover:bg-rose-50'

@@ -82,6 +82,17 @@ const formatTimeLabel = (value) => {
   return value === '24:00' ? '00:00' : value;
 };
 
+const formatCompactDuration = (mins) => {
+  const value = Math.max(0, Math.round(mins || 0));
+  if (value === 0) return '0h';
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  const parts = [];
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  return parts.join(' ');
+};
+
 const formatShiftSummary = (shift) => {
   if (!shift) return '—';
   const windowLabel = `${formatTimeLabel(shift.start)}–${formatTimeLabel(shift.end)}`;
@@ -144,87 +155,18 @@ const describePlanChanges = (previous = {}, next = {}) => {
   return messages;
 };
 
-const splitTasksByPlanStart = (items, planSpan, date, shifts) => {
-  if (!Array.isArray(items) || items.length === 0) return [];
+const splitTasksByPlanStart = (items) => items || [];
 
-  const NIGHT_START = 22 * 60;
-  const NIGHT_END = 6 * 60;
-  const MINUTES_IN_DAY = 24 * 60;
-  const DEFAULT_CORE_START = 8 * 60;
-  const DEFAULT_CORE_END = 16 * 60;
-
-  const boundaries = new Set([NIGHT_END, NIGHT_START, DEFAULT_CORE_START, DEFAULT_CORE_END]);
-  if (planSpan?.start != null) boundaries.add(planSpan.start);
-  if (planSpan?.end != null) boundaries.add(planSpan.end);
-
-  const orderedBoundaries = Array.from(boundaries)
-    .filter((value) => Number.isFinite(value) && value > 0 && value < MINUTES_IN_DAY)
-    .sort((a, b) => a - b);
-
-  const result = [];
-
-  items.forEach((item) => {
-    if (!item?.start || !item?.end) {
-      result.push(item);
-      return;
-    }
-
-    let segments = [{ ...item }];
-    orderedBoundaries.forEach((boundary) => {
-      segments = segments.flatMap((segment) => {
-        const startMinutes = toMinutes(segment.start);
-        const endMinutes = toMinutes(segment.end);
-        if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || startMinutes >= endMinutes) {
-          return [segment];
-        }
-        if (startMinutes < boundary && endMinutes > boundary) {
-          const boundaryLabel = minutesToHHmm(boundary);
-          const baseId = item.id || `task-${boundary}-${startMinutes}`;
-          const head = {
-            ...segment,
-            id: `${baseId}#${boundaryLabel}-a`,
-            end: boundaryLabel
-          };
-          const tail = {
-            ...segment,
-            id: `${baseId}#${boundaryLabel}-b`,
-            start: boundaryLabel
-          };
-          return [head, tail];
-        }
-        return [segment];
-      });
-    });
-
-    segments.forEach((segment, index) => {
-      const startMinutes = toMinutes(segment.start);
-      const endMinutes = toMinutes(segment.end);
-      const baseId = item.id || `task-${index}`;
-      const segmentId = segments.length === 1 ? baseId : `${baseId}#${index}`;
-      if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || startMinutes >= endMinutes) {
-        result.push({ ...segment, id: segmentId });
-        return;
-      }
-      result.push({
-        ...segment,
-        id: segmentId,
-        workKind: computeWorkKindFor(segment, date, shifts)
-      });
-    });
-  });
-
-  return result;
-};
-
-function TimeSelect({ value, onChange, placeholder, disabled }) {
+function TimeSelect({ value, onChange, placeholder, disabled, size = 'compact' }) {
   const v = value ?? '';
   const opts = v && !timeOptions15.includes(v) ? [v, ...timeOptions15] : timeOptions15;
+  const widthClass = size === 'plan' ? 'w-[6rem]' : 'w-[5rem]';
   return (
     <select
       value={v}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
-      className="mt-1 w-full max-w-[7rem] rounded-xl border-2 border-slate-300 px-3 py-2 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+      className={`mt-1 ${widthClass} rounded-xl border-2 border-slate-300 px-1.5 py-2 font-mono tabular-nums text-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed`}
     >
       <option value="">{placeholder || '—'}</option>
       {opts.map((o) => (
@@ -942,6 +884,14 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
   const reportedMinutesCalc = submissionItemsVisible
     .filter((item) => item.start && item.end)
     .reduce((acc, item) => acc + (toMinutes(item.end) - toMinutes(item.start)), 0);
+  const reportedWithinPlan = Math.min(reportedMinutesCalc, plannedMinutes);
+  const reportedOvertime = Math.max(reportedMinutesCalc - reportedWithinPlan, 0);
+  const reportedPlanLabel =
+    plannedMinutes > 0
+      ? `${formatCompactDuration(reportedWithinPlan)} Planowo`
+      : formatCompactDuration(reportedWithinPlan);
+  const reportedOvertimeLabel =
+    reportedOvertime > 0 ? `${formatCompactDuration(reportedOvertime)} nadgodzin` : null;
   const allDoneCalc = submissionItemsVisible.length > 0 && submissionItemsVisible.every((item) =>
     String(item.status || '').toLowerCase().includes('zako')
   );
@@ -1566,11 +1516,11 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
                     <label className="text-sm block">
                       Start
-                      <TimeSelect value={segment.start} onChange={(value) => setSegField(idx, 'start', value)} />
+                      <TimeSelect value={segment.start} onChange={(value) => setSegField(idx, 'start', value)} size="plan" />
                     </label>
                     <label className="text-sm block">
                       Koniec
-                      <TimeSelect value={segment.end} onChange={(value) => setSegField(idx, 'end', value)} />
+                      <TimeSelect value={segment.end} onChange={(value) => setSegField(idx, 'end', value)} size="plan" />
                     </label>
                     <label className="text-sm block">
                       Tryb pracy
@@ -1783,7 +1733,13 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
               </span>
               <span className="text-slate-400">/</span>
               <span className="text-base font-semibold text-slate-700">
-                Zgłoszono: {minutesToHHmm(reportedMinutesCalc)} h
+                Zgłoszono: {reportedPlanLabel}
+                {reportedOvertimeLabel ? (
+                  <>
+                    {' + '}
+                    <span className="text-rose-600 font-semibold">{reportedOvertimeLabel}</span>
+                  </>
+                ) : null}
               </span>
             </div>
             <div className="overflow-x-auto rounded-xl border-2 border-slate-300">
