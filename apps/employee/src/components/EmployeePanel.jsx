@@ -19,7 +19,8 @@ import {
   Trash2,
   Loader2,
   Check,
-  Edit3
+  Edit3,
+  Plug
 } from 'lucide-react';
 import {
   cls,
@@ -48,7 +49,8 @@ import {
   fetchMonthlyLogs,
   useEmployeePlans,
   useManagersAndEmployees,
-  savePlan
+  savePlan,
+  fetchCrmProjects
 } from '@planner/shared';
 import Logo from '../assets/ibcs-logo.png';
 
@@ -479,6 +481,179 @@ function StatusChooser({ value, onChange, disabled }) {
   );
 }
 
+function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const containerRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const [panelRect, setPanelRect] = useState(null);
+  const safeOptions = useMemo(() => (Array.isArray(options) ? options : []), [options]);
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return safeOptions;
+    return safeOptions.filter((item) => {
+      const haystack = `${item.label || ''} ${item.displayTitle || ''} ${item.titleInternal || ''} ${item.titleCustomer || ''} ${item.number || ''}`.toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [safeOptions, search]);
+
+  const updatePanelPosition = useCallback(() => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    setPanelRect({
+      top: rect.bottom + 6,
+      left: rect.left,
+      width: rect.width
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    updatePanelPosition();
+    const handleScroll = () => updatePanelPosition();
+    const handleResize = () => updatePanelPosition();
+    const handleClick = (event) => {
+      if (containerRef.current && containerRef.current.contains(event.target)) return;
+      setOpen(false);
+    };
+    window.addEventListener('mousedown', handleClick);
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('resize', handleResize);
+    const focusTimer = setTimeout(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }, 0);
+    return () => {
+      clearTimeout(focusTimer);
+      window.removeEventListener('mousedown', handleClick);
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [open, updatePanelPosition]);
+
+  useEffect(() => {
+    if (open) setSearch('');
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  const handleInputChange = useCallback(
+    (event) => {
+      const nextValue = event.target.value;
+      onChange(nextValue);
+      if (open) setSearch(nextValue);
+    },
+    [onChange, open]
+  );
+
+  const handleToggle = useCallback(() => {
+    if (disabled) return;
+    setOpen((prev) => !prev);
+  }, [disabled]);
+
+  const handleSelect = useCallback(
+    (label) => {
+      onChange(label);
+      setSearch(label);
+      setOpen(false);
+    },
+    [onChange]
+  );
+
+  const dropdownWidth = panelRect ? Math.max(panelRect.width, 420) : 420;
+  const dropdownMaxHeight = panelRect
+    ? Math.max(200, Math.min(360, panelRect.top - 24))
+    : 320;
+
+  const inputDisplayValue = value || search;
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <input
+        value={inputDisplayValue}
+        onChange={handleInputChange}
+        onFocus={() => !disabled && setOpen(true)}
+        className={cls(
+          'w-full rounded-lg border-2 border-slate-300 px-2 py-1 pr-9',
+          disabled && 'bg-slate-100 text-slate-500'
+        )}
+        placeholder="np. CR-10001 / zasób"
+        disabled={disabled}
+        autoComplete="off"
+      />
+      <button
+        type="button"
+        onClick={handleToggle}
+        className={cls(
+          'absolute inset-y-0 right-1 flex items-center rounded-md px-2 text-slate-500 transition hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1',
+          disabled && 'pointer-events-none text-slate-300'
+        )}
+        aria-label="Lista projektów CRM"
+      >
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronDown className={cls('h-4 w-4 transition-transform', open && 'rotate-180')} />}
+      </button>
+      {open && panelRect &&
+        createPortal(
+          <div
+            className="z-50 rounded-2xl border border-slate-200 bg-white shadow-2xl text-sm"
+            style={{
+              position: 'fixed',
+              top: panelRect.top,
+              left: panelRect.left,
+              width: dropdownWidth,
+              maxWidth: dropdownWidth,
+              transform: 'translateY(calc(-100% - 8px))'
+            }}
+          >
+            <div className="border-b border-slate-200 p-2">
+              <input
+                ref={searchInputRef}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                placeholder="Szukaj projektu..."
+              />
+            </div>
+            <div className="overflow-y-auto" style={{ maxHeight: dropdownMaxHeight }}>
+              {loading ? (
+                <div className="flex items-center justify-center gap-2 px-3 py-4 text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Ładowanie...
+                </div>
+              ) : filtered.length === 0 ? (
+                <div className="px-3 py-4 text-slate-500">Brak wyników.</div>
+              ) : (
+                filtered.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleSelect(item.label)}
+                    className={cls(
+                      'w-full text-left px-3 py-2 hover:bg-slate-50',
+                      item.label === value && 'bg-sky-50 text-sky-700'
+                    )}
+                  >
+                    <div className="font-medium truncate">
+                      {item.number}
+                      {item.number && item.displayTitle ? ' - ' : ''}
+                      {item.displayTitle}
+                    </div>
+                    {item.titleCustomer && item.titleCustomer !== item.displayTitle && (
+                      <div className="text-xs text-slate-500 truncate">{item.titleCustomer}</div>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+}
+
 const TaskRow = memo(function TaskRow({
   task,
   selected,
@@ -492,7 +667,9 @@ const TaskRow = memo(function TaskRow({
   onUnlock,
   onExport,
   onDelete,
-  computeWorkKind
+  computeWorkKind,
+  crmProjectsLoading,
+  crmProjects
 }) {
   const stateKey = task._syncState || 'EDITED';
   const stateMeta = TASK_STATE_META[stateKey] || TASK_STATE_META.EDITED;
@@ -545,12 +722,12 @@ const TaskRow = memo(function TaskRow({
         />
       </td>
       <td className="p-2">
-        <input
+        <CrmProjectSelect
           value={task.project}
-          onChange={(e) => onFieldChange(task.id, { project: e.target.value })}
-          className="w-full rounded-lg border-2 border-slate-300 px-2 py-1"
-          placeholder="np. CR-10001 / zasób"
+          onChange={(next) => onFieldChange(task.id, { project: next })}
+          options={crmProjects}
           disabled={task.locked || isAbsenceType}
+          loading={crmProjectsLoading}
         />
       </td>
       <td className="p-2">
@@ -798,6 +975,22 @@ export default function EmployeePanel() {
   const [splitProcessing, setSplitProcessing] = useState(false);
   const [sendingPlan, setSendingPlan] = useState(false);
   const [sendingTasks, setSendingTasks] = useState(false);
+  const [crmProjects, setCrmProjects] = useState([]);
+  const [crmProjectsLoading, setCrmProjectsLoading] = useState(false);
+  const [crmProjectsError, setCrmProjectsError] = useState('');
+  const refreshCrmProjects = useCallback(async () => {
+    setCrmProjectsLoading(true);
+    setCrmProjectsError('');
+    try {
+      const items = await fetchCrmProjects();
+      setCrmProjects(items);
+    } catch (err) {
+      setCrmProjects([]);
+      setCrmProjectsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCrmProjectsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     setLoadingInitial(loadingDirectory);
@@ -886,6 +1079,10 @@ export default function EmployeePanel() {
       active = false;
     };
   }, [selectedEmployee?.id, dKey]);
+
+  useEffect(() => {
+    refreshCrmProjects();
+  }, [refreshCrmProjects]);
 
   useEffect(() => {
     if (!taskActionsMenu.id) return;
@@ -1555,43 +1752,52 @@ export default function EmployeePanel() {
     );
   }, [planSignature, taskItems]);
 
-  const addTask = useCallback(
-    () =>
-      setSubDraft((prev) => {
-        const items = prev.items || [];
-        const lastTaskWithEnd = [...items].reverse().find((task) => task.end);
-        const defaultStart = lastTaskWithEnd?.end || shifts[0]?.start || '';
-        const defaultEnd = (() => {
-          if (shifts.length === 0) return '';
-          const fallback = shifts[shifts.length - 1]?.end || '';
-          if (!defaultStart) return fallback;
-          const startMinutes = toMinutes(defaultStart);
-          const candidate = shifts.find((shift) => toMinutes(shift.end) > startMinutes)?.end;
-          return candidate || fallback;
-        })();
-
+  const addTask = useCallback(() => {
+    setSubDraft((prev) => {
+      const items = prev.items || [];
+      const marked = items.map((item) => {
+        if (item._syncState === 'SENT') return item;
         return {
-          ...prev,
-          items: [
-            ...items,
-            {
-              id: `t${Date.now()}`,
-              type: 'Biuro',
-              subject: '',
-              client: '',
-              project: '',
-              start: defaultStart,
-              end: defaultEnd,
-              workKind: 'Zwykłe',
-              status: 'Planowane',
-              sent: false,
-              _syncState: 'EDITED'
-            }
-          ]
+          ...item,
+          _syncState: 'DRAFT',
+          prevSyncState: 'DRAFT',
+          locked: true,
+          sent: true
         };
-      }),
-    [shifts]
-  );
+      });
+
+      const lastTaskWithEnd = [...marked].reverse().find((task) => task.end);
+      const defaultStart = lastTaskWithEnd?.end || shifts[0]?.start || '';
+      const defaultEnd = (() => {
+        if (shifts.length === 0) return '';
+        const fallback = shifts[shifts.length - 1]?.end || '';
+        if (!defaultStart) return fallback;
+        const startMinutes = toMinutes(defaultStart);
+        const candidate = shifts.find((shift) => toMinutes(shift.end) > startMinutes)?.end;
+        return candidate || fallback;
+      })();
+
+      const newTask = {
+        id: `t${Date.now()}`,
+        type: 'Biuro',
+        subject: '',
+        client: '',
+        project: '',
+        start: defaultStart,
+        end: defaultEnd,
+        workKind: 'Zwykłe',
+        status: 'Planowane',
+        sent: false,
+        locked: false,
+        _syncState: 'EDITED'
+      };
+
+      return {
+        ...prev,
+        items: [...marked, newTask]
+      };
+    });
+  }, [shifts]);
 
   const importPlanToTasks = useCallback(() => {
     const segments = (shifts || []).filter((segment) => segment.start && segment.end);
@@ -2818,6 +3024,30 @@ Status: ${task.status || '-'}`;
             ) : null}
           </span>
         </div>
+        {(crmProjectsLoading || crmProjectsError || crmProjects.length > 0) && (
+          <div className="flex flex-wrap items-center gap-2 text-xs mb-3">
+            {crmProjectsLoading && (
+              <span className="inline-flex items-center gap-1 text-slate-400">
+                <Loader2 className="w-3 h-3 animate-spin" /> Ładowanie listy projektów z CRM...
+              </span>
+            )}
+            {!crmProjectsLoading && crmProjectsError && (
+              <>
+                <span className="inline-flex items-center gap-1 text-rose-600">
+                  {crmProjectsError}
+                </span>
+                <button onClick={refreshCrmProjects} className="underline text-slate-600">
+                  Spróbuj ponownie
+                </button>
+              </>
+            )}
+            {!crmProjectsLoading && !crmProjectsError && crmProjects.length > 0 && (
+              <span className="inline-flex items-center gap-1 text-emerald-600">
+                <Plug className="w-3 h-3" /> Lista projektów CRM dostępna ({crmProjects.length})
+              </span>
+            )}
+          </div>
+        )}
         {taskItems.length === 0 && (
           <p className="text-sm text-slate-500">Brak zadań. Dodaj pierwsze.</p>
         )}
@@ -2875,6 +3105,8 @@ Status: ${task.status || '-'}`;
                     onExport={handleTaskExport}
                     onDelete={handleTaskDelete}
                     computeWorkKind={wkOf}
+                    crmProjectsLoading={crmProjectsLoading}
+                    crmProjects={crmProjects}
                   />
                 ))}
               </tbody>
