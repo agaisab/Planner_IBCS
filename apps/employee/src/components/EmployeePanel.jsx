@@ -484,6 +484,7 @@ function StatusChooser({ value, onChange, disabled }) {
 function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [highlightIndex, setHighlightIndex] = useState(-1);
   const containerRef = useRef(null);
   const searchInputRef = useRef(null);
   const [panelRect, setPanelRect] = useState(null);
@@ -493,10 +494,32 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
     const term = search.trim().toLowerCase();
     if (!term) return safeOptions;
     return safeOptions.filter((item) => {
-      const haystack = `${item.label || ''} ${item.displayTitle || ''} ${item.titleInternal || ''} ${item.titleCustomer || ''} ${item.number || ''}`.toLowerCase();
+      const haystack = `${item.label || ''} ${item.displayTitle || ''} ${item.titleInternal || ''} ${item.titleCustomer || ''} ${item.number || ''} ${item.ownerName || ''}`.toLowerCase();
       return haystack.includes(term);
     });
   }, [safeOptions, search]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!filtered.length) {
+      setHighlightIndex(-1);
+      return;
+    }
+    const currentIndex = filtered.findIndex((item) => item.label === value);
+    setHighlightIndex(currentIndex >= 0 ? currentIndex : 0);
+  }, [open, filtered, value]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!filtered.length) {
+      setHighlightIndex(-1);
+      return;
+    }
+    setHighlightIndex((prev) => {
+      if (prev < 0 || prev >= filtered.length) return 0;
+      return prev;
+    });
+  }, [filtered, open]);
 
   const updatePanelPosition = useCallback(() => {
     if (!containerRef.current) return;
@@ -514,6 +537,7 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
     const handleScroll = () => updatePanelPosition();
     const handleResize = () => updatePanelPosition();
     const handleClick = (event) => {
+      if (event.target.closest('[data-crm-project-menu]')) return;
       if (containerRef.current && containerRef.current.contains(event.target)) return;
       setOpen(false);
     };
@@ -533,7 +557,13 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
   }, [open, updatePanelPosition]);
 
   useEffect(() => {
-    if (open) setSearch('');
+    if (!open) return;
+    setSearch(value || '');
+  }, [open, value]);
+
+  useEffect(() => {
+    if (open) return;
+    setHighlightIndex(-1);
   }, [open]);
 
   useEffect(() => {
@@ -543,16 +573,11 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
   const handleInputChange = useCallback(
     (event) => {
       const nextValue = event.target.value;
-      onChange(nextValue);
-      if (open) setSearch(nextValue);
+      setSearch(nextValue);
+      if (!open) setOpen(true);
     },
-    [onChange, open]
+    [open]
   );
-
-  const handleToggle = useCallback(() => {
-    if (disabled) return;
-    setOpen((prev) => !prev);
-  }, [disabled]);
 
   const handleSelect = useCallback(
     (label) => {
@@ -563,12 +588,82 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
     [onChange]
   );
 
-  const dropdownWidth = panelRect ? Math.max(panelRect.width, 420) : 420;
+  const handleInputKeyDown = useCallback(
+    (event) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        if (!open) {
+          setOpen(true);
+          return;
+        }
+        setHighlightIndex((prev) => {
+          const base = prev < 0 ? -1 : prev;
+          const next = Math.min(base + 1, filtered.length - 1);
+          return next;
+        });
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (!open) {
+          setOpen(true);
+          return;
+        }
+        setHighlightIndex((prev) => {
+          if (prev <= 0) return 0;
+          return prev - 1;
+        });
+      } else if (event.key === 'Enter') {
+        if (!open) return;
+        event.preventDefault();
+        const option = highlightIndex >= 0 ? filtered[highlightIndex] : filtered[0];
+        if (option) handleSelect(option.label);
+      } else if (event.key === 'Escape') {
+        if (open) {
+          event.preventDefault();
+          setOpen(false);
+        }
+      }
+    },
+    [filtered, handleSelect, highlightIndex, open]
+  );
+
+  const handleToggle = useCallback(() => {
+    if (disabled) return;
+    setOpen((prev) => !prev);
+  }, [disabled]);
+
+  const longestLabel = useMemo(() => {
+    return safeOptions.reduce((acc, item) => {
+      const candidate = item.label || [item.number, item.displayTitle].filter(Boolean).join(' - ');
+      if (candidate && candidate.length > acc.length) return candidate;
+      return acc;
+    }, '');
+  }, [safeOptions]);
+
+  const labelPixelWidth = useMemo(() => {
+    if (typeof window === 'undefined' || !longestLabel) return 0;
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) return 0;
+    const referenceNode = containerRef.current?.querySelector('input');
+    const computedFont = referenceNode
+      ? window.getComputedStyle(referenceNode).font
+      : '14px "Inter", sans-serif';
+    context.font = computedFont;
+    const metrics = context.measureText(longestLabel);
+    return metrics.width;
+  }, [longestLabel]);
+
+  const dropdownWidth = useMemo(() => {
+    const baseWidth = panelRect ? panelRect.width : 0;
+    const measured = Math.ceil(labelPixelWidth) + 48; // padding for padding + scrollbar
+    const minimum = 520;
+    return Math.max(baseWidth, measured, minimum);
+  }, [panelRect, labelPixelWidth]);
   const dropdownMaxHeight = panelRect
     ? Math.max(200, Math.min(360, panelRect.top - 24))
     : 320;
 
-  const inputDisplayValue = value || search;
+  const inputDisplayValue = open ? search : value || '';
 
   return (
     <div className="relative" ref={containerRef}>
@@ -576,6 +671,7 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
         value={inputDisplayValue}
         onChange={handleInputChange}
         onFocus={() => !disabled && setOpen(true)}
+        onKeyDown={handleInputKeyDown}
         className={cls(
           'w-full rounded-lg border-2 border-slate-300 px-2 py-1 pr-9',
           disabled && 'bg-slate-100 text-slate-500'
@@ -598,6 +694,8 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
       {open && panelRect &&
         createPortal(
           <div
+            data-crm-project-menu
+            role="listbox"
             className="z-50 rounded-2xl border border-slate-200 bg-white shadow-2xl text-sm"
             style={{
               position: 'fixed',
@@ -613,6 +711,7 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
                 ref={searchInputRef}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={handleInputKeyDown}
                 className="w-full rounded-lg border border-slate-200 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
                 placeholder="Szukaj projektu..."
               />
@@ -625,14 +724,21 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
               ) : filtered.length === 0 ? (
                 <div className="px-3 py-4 text-slate-500">Brak wyników.</div>
               ) : (
-                filtered.map((item) => (
+                filtered.map((item, index) => (
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => handleSelect(item.label)}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      handleSelect(item.label);
+                    }}
+                    onMouseEnter={() => setHighlightIndex(index)}
+                    role="option"
+                    aria-selected={item.label === value}
                     className={cls(
                       'w-full text-left px-3 py-2 hover:bg-slate-50',
-                      item.label === value && 'bg-sky-50 text-sky-700'
+                      item.label === value && 'bg-sky-50 text-sky-700',
+                      index === highlightIndex && 'bg-sky-100 text-slate-900'
                     )}
                   >
                     <div className="font-medium truncate">
@@ -642,6 +748,9 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
                     </div>
                     {item.titleCustomer && item.titleCustomer !== item.displayTitle && (
                       <div className="text-xs text-slate-500 truncate">{item.titleCustomer}</div>
+                    )}
+                    {item.ownerName && (
+                      <div className="text-xs text-slate-400 truncate">Właściciel: {item.ownerName}</div>
                     )}
                   </button>
                 ))
