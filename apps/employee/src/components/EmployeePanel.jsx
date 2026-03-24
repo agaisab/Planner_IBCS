@@ -11,6 +11,8 @@ import {
   CalendarPlus,
   Download,
   Settings,
+  Upload,
+  Menu,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -50,7 +52,12 @@ import {
   useEmployeePlans,
   useManagersAndEmployees,
   savePlan,
-  fetchCrmProjects
+  fetchCrmProjects,
+  fetchCrmTasksForDate,
+  createCrmTaskActivity,
+  closeCrmTaskActivity,
+  deleteCrmTaskActivity,
+  isPublicHoliday
 } from '@planner/shared';
 import Logo from '../assets/ibcs-logo.png';
 
@@ -60,6 +67,8 @@ const CARD = 'rounded-2xl border-2 border-slate-300 bg-white shadow-sm p-4';
 const CHIP = 'inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-sm';
 const WEEK_DAYS = ['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'];
 const ABSENCE_TASK_TYPES = ['Urlop', 'L4', 'Nieobecność'];
+const CRM_PROXY_URL = import.meta.env?.VITE_CRM_PROXY_URL || 'http://localhost:5050';
+const CRM_FIXED_DOMAIN = import.meta.env?.VITE_CRM_DOMAIN || 'bcspol';
 
 const TASK_STATE_META = {
   SENT: {
@@ -139,6 +148,22 @@ const mergeSubmissionItems = (previous = [], incoming = []) => {
 
   return Array.from(mergedMap.values());
 };
+
+function Modal({ open, title, children, actions, onClose }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div
+        className="w-full max-w-md rounded-2xl border-2 border-slate-300 bg-white shadow-xl p-4"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-medium mb-3">{title}</h3>
+        <div>{children}</div>
+        <div className="mt-4 flex justify-end gap-2">{actions}</div>
+      </div>
+    </div>
+  );
+}
 
 const formatTimeLabel = (value) => {
   if (!value) return '—';
@@ -280,9 +305,15 @@ const formatCompactDuration = (mins) => {
   return parts.join(' ');
 };
 
-function TimeSelect({ value, onChange, placeholder, disabled, size = 'compact' }) {
+function TimeSelect({ value, onChange, placeholder, disabled, size = 'compact', minValue, maxValue }) {
   const v = value ?? '';
-  const opts = v && !timeOptions15.includes(v) ? [v, ...timeOptions15] : timeOptions15;
+  const minMinutes = minValue ? toMinutes(minValue) : -Infinity;
+  const maxMinutes = maxValue ? toMinutes(maxValue) : Infinity;
+  const baseOptions = timeOptions15.filter((option) => {
+    const optionMinutes = toMinutes(option);
+    return optionMinutes >= minMinutes && optionMinutes <= maxMinutes;
+  });
+  const opts = v && !baseOptions.includes(v) ? [v, ...baseOptions] : baseOptions;
   const widthClass = size === 'plan' ? 'w-[6rem]' : 'w-[5rem]';
   return (
     <select
@@ -481,10 +512,11 @@ function StatusChooser({ value, onChange, disabled }) {
   );
 }
 
-function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
+function CrmProjectSelect({ value, onChange, onSelectOption, options, disabled, loading }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [highlightIndex, setHighlightIndex] = useState(-1);
+  const [collapsedGroups, setCollapsedGroups] = useState({ project: true, opportunity: true });
   const containerRef = useRef(null);
   const searchInputRef = useRef(null);
   const [panelRect, setPanelRect] = useState(null);
@@ -494,32 +526,64 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
     const term = search.trim().toLowerCase();
     if (!term) return safeOptions;
     return safeOptions.filter((item) => {
-      const haystack = `${item.label || ''} ${item.displayTitle || ''} ${item.titleInternal || ''} ${item.titleCustomer || ''} ${item.number || ''} ${item.ownerName || ''}`.toLowerCase();
+      const haystack = `${item.label || ''} ${item.displayTitle || ''} ${item.titleInternal || ''} ${item.titleCustomer || ''} ${item.customerName || ''} ${item.number || ''} ${item.ownerName || ''} ${item.categoryLabel || ''} ${item.opportunityName || ''}`.toLowerCase();
       return haystack.includes(term);
     });
   }, [safeOptions, search]);
 
-  useEffect(() => {
-    if (!open) return;
-    if (!filtered.length) {
-      setHighlightIndex(-1);
-      return;
+  const groupedFiltered = useMemo(() => {
+    const projects = [];
+    const opportunities = [];
+
+    filtered.forEach((item) => {
+      if (item.category === 'opportunity') {
+        opportunities.push(item);
+      } else {
+        projects.push(item);
+      }
+    });
+
+    return [
+      { key: 'project', label: 'PROJEKTY', items: projects },
+      { key: 'opportunity', label: 'SZANSE SPRZEDAŻY', items: opportunities }
+    ].filter((group) => group.items.length > 0);
+  }, [filtered]);
+
+  const visibleOptions = useMemo(() => {
+    if (search.trim()) return filtered;
+    return groupedFiltered.flatMap((group) => (collapsedGroups[group.key] ? [] : group.items));
+  }, [collapsedGroups, filtered, groupedFiltered, search]);
+
+  const formatPrimaryLine = useCallback((item) => {
+    if (item.category === 'opportunity') {
+      return item.displayTitle || item.label || '';
     }
-    const currentIndex = filtered.findIndex((item) => item.label === value);
-    setHighlightIndex(currentIndex >= 0 ? currentIndex : 0);
-  }, [open, filtered, value]);
+    return item.number && item.displayTitle
+      ? `${item.number} - ${item.displayTitle}`
+      : item.displayTitle || item.label || item.number || '';
+  }, []);
 
   useEffect(() => {
     if (!open) return;
-    if (!filtered.length) {
+    if (!visibleOptions.length) {
+      setHighlightIndex(-1);
+      return;
+    }
+    const currentIndex = visibleOptions.findIndex((item) => item.label === value);
+    setHighlightIndex(currentIndex >= 0 ? currentIndex : 0);
+  }, [open, value, visibleOptions]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!visibleOptions.length) {
       setHighlightIndex(-1);
       return;
     }
     setHighlightIndex((prev) => {
-      if (prev < 0 || prev >= filtered.length) return 0;
+      if (prev < 0 || prev >= visibleOptions.length) return 0;
       return prev;
     });
-  }, [filtered, open]);
+  }, [open, visibleOptions]);
 
   const updatePanelPosition = useCallback(() => {
     if (!containerRef.current) return;
@@ -567,6 +631,13 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
   }, [open]);
 
   useEffect(() => {
+    if (!open) return;
+    if (search.trim()) {
+      setCollapsedGroups({ project: false, opportunity: false });
+    }
+  }, [open, search]);
+
+  useEffect(() => {
     if (disabled) setOpen(false);
   }, [disabled]);
 
@@ -580,12 +651,18 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
   );
 
   const handleSelect = useCallback(
-    (label) => {
+    (option) => {
+      if (!option) return;
+      const label =
+        option.label || formatPrimaryLine(option);
       onChange(label);
       setSearch(label);
+      if (onSelectOption) {
+        onSelectOption(option, label);
+      }
       setOpen(false);
     },
-    [onChange]
+    [formatPrimaryLine, onChange, onSelectOption]
   );
 
   const handleInputKeyDown = useCallback(
@@ -598,7 +675,7 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
         }
         setHighlightIndex((prev) => {
           const base = prev < 0 ? -1 : prev;
-          const next = Math.min(base + 1, filtered.length - 1);
+          const next = Math.min(base + 1, visibleOptions.length - 1);
           return next;
         });
       } else if (event.key === 'ArrowUp') {
@@ -614,8 +691,8 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
       } else if (event.key === 'Enter') {
         if (!open) return;
         event.preventDefault();
-        const option = highlightIndex >= 0 ? filtered[highlightIndex] : filtered[0];
-        if (option) handleSelect(option.label);
+        const option = highlightIndex >= 0 ? visibleOptions[highlightIndex] : visibleOptions[0];
+        if (option) handleSelect(option);
       } else if (event.key === 'Escape') {
         if (open) {
           event.preventDefault();
@@ -623,7 +700,7 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
         }
       }
     },
-    [filtered, handleSelect, highlightIndex, open]
+    [handleSelect, highlightIndex, open, visibleOptions]
   );
 
   const handleToggle = useCallback(() => {
@@ -631,13 +708,27 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
     setOpen((prev) => !prev);
   }, [disabled]);
 
+  const toggleGroup = useCallback((groupKey) => {
+    setCollapsedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
+  }, []);
+
   const longestLabel = useMemo(() => {
-    return safeOptions.reduce((acc, item) => {
-      const candidate = item.label || [item.number, item.displayTitle].filter(Boolean).join(' - ');
-      if (candidate && candidate.length > acc.length) return candidate;
+    const longestOptionLine = safeOptions.reduce((acc, item) => {
+      const primaryLine = formatPrimaryLine(item);
+      const customerLine = `Klient: ${item.customerName || item.titleCustomer || '—'}`;
+      const ownerLine = `KP: ${item.ownerName || '—'}`;
+      const longestForItem = [primaryLine, customerLine, ownerLine].reduce((max, current) => {
+        if (!current) return max;
+        return current.length > max.length ? current : max;
+      }, '');
+      if (longestForItem && longestForItem.length > acc.length) return longestForItem;
       return acc;
     }, '');
-  }, [safeOptions]);
+    const longestGroupLabel = groupedFiltered.reduce((acc, group) => {
+      return group.label.length > acc.length ? group.label : acc;
+    }, '');
+    return longestGroupLabel.length > longestOptionLine.length ? longestGroupLabel : longestOptionLine;
+  }, [formatPrimaryLine, groupedFiltered, safeOptions]);
 
   const labelPixelWidth = useMemo(() => {
     if (typeof window === 'undefined' || !longestLabel) return 0;
@@ -655,10 +746,21 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
 
   const dropdownWidth = useMemo(() => {
     const baseWidth = panelRect ? panelRect.width : 0;
-    const measured = Math.ceil(labelPixelWidth) + 48; // padding for padding + scrollbar
+    const measured = Math.ceil(labelPixelWidth) + 96;
     const minimum = 520;
-    return Math.max(baseWidth, measured, minimum);
+    const maximum = 980;
+    return Math.min(Math.max(baseWidth, measured, minimum), maximum);
   }, [panelRect, labelPixelWidth]);
+  const dropdownViewportWidth = useMemo(() => {
+    if (typeof window === 'undefined') return dropdownWidth;
+    return Math.min(dropdownWidth, window.innerWidth - 24, 980);
+  }, [dropdownWidth]);
+  const dropdownLeft = useMemo(() => {
+    if (!panelRect) return 0;
+    if (typeof window === 'undefined') return panelRect.left;
+    const maxLeft = Math.max(12, window.innerWidth - dropdownViewportWidth - 12);
+    return Math.min(panelRect.left, maxLeft);
+  }, [dropdownViewportWidth, panelRect]);
   const dropdownMaxHeight = panelRect
     ? Math.max(200, Math.min(360, panelRect.top - 24))
     : 320;
@@ -700,9 +802,9 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
             style={{
               position: 'fixed',
               top: panelRect.top,
-              left: panelRect.left,
-              width: dropdownWidth,
-              maxWidth: dropdownWidth,
+              left: dropdownLeft,
+              width: dropdownViewportWidth,
+              maxWidth: dropdownViewportWidth,
               transform: 'translateY(calc(-100% - 8px))'
             }}
           >
@@ -724,35 +826,47 @@ function CrmProjectSelect({ value, onChange, options, disabled, loading }) {
               ) : filtered.length === 0 ? (
                 <div className="px-3 py-4 text-slate-500">Brak wyników.</div>
               ) : (
-                filtered.map((item, index) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      handleSelect(item.label);
-                    }}
-                    onMouseEnter={() => setHighlightIndex(index)}
-                    role="option"
-                    aria-selected={item.label === value}
-                    className={cls(
-                      'w-full text-left px-3 py-2 hover:bg-slate-50',
-                      item.label === value && 'bg-sky-50 text-sky-700',
-                      index === highlightIndex && 'bg-sky-100 text-slate-900'
-                    )}
-                  >
-                    <div className="font-medium truncate">
-                      {item.number}
-                      {item.number && item.displayTitle ? ' - ' : ''}
-                      {item.displayTitle}
-                    </div>
-                    {item.titleCustomer && item.titleCustomer !== item.displayTitle && (
-                      <div className="text-xs text-slate-500 truncate">{item.titleCustomer}</div>
-                    )}
-                    {item.ownerName && (
-                      <div className="text-xs text-slate-400 truncate">Właściciel: {item.ownerName}</div>
-                    )}
-                  </button>
+                groupedFiltered.map((group) => (
+                  <div key={group.key}>
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => toggleGroup(group.key)}
+                      className="sticky top-0 z-10 flex w-full items-center justify-between border-y border-slate-200 bg-slate-100 px-3 py-1.5 text-[11px] font-semibold tracking-[0.16em] text-slate-600"
+                    >
+                      <span>{group.label}</span>
+                      <ChevronDown className={cls('h-3 w-3 transition-transform', !collapsedGroups[group.key] && 'rotate-180')} />
+                    </button>
+                    {(!collapsedGroups[group.key] || search.trim()) && group.items.map((item) => {
+                      const index = visibleOptions.findIndex((entry) => entry.id === item.id);
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            handleSelect(item);
+                          }}
+                          onMouseEnter={() => setHighlightIndex(index)}
+                          role="option"
+                          aria-selected={item.label === value}
+                          className={cls(
+                            'w-full text-left px-3 py-2 hover:bg-slate-50',
+                            item.label === value && 'bg-sky-50 text-sky-700',
+                            index === highlightIndex && 'bg-sky-100 text-slate-900'
+                          )}
+                        >
+                          <div className="font-medium leading-tight whitespace-nowrap">{formatPrimaryLine(item)}</div>
+                          <div className="text-xs text-slate-500 whitespace-nowrap leading-tight">
+                            Klient: {item.customerName || item.titleCustomer || '—'}
+                          </div>
+                          <div className="text-xs text-slate-400 whitespace-nowrap leading-tight">
+                            KP: {item.ownerName || '—'}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 ))
               )}
             </div>
@@ -775,10 +889,14 @@ const TaskRow = memo(function TaskRow({
   onLock,
   onUnlock,
   onExport,
+  onSendToCrm,
   onDelete,
   computeWorkKind,
   crmProjectsLoading,
-  crmProjects
+  crmProjects,
+  previousTask,
+  nextTask,
+  crmSending
 }) {
   const stateKey = task._syncState || 'EDITED';
   const stateMeta = TASK_STATE_META[stateKey] || TASK_STATE_META.EDITED;
@@ -786,6 +904,12 @@ const TaskRow = memo(function TaskRow({
   const menuOpen = activeTaskId === task.id;
   const isAbsenceType = ABSENCE_TASK_TYPES.includes(task.type);
   const workKind = isAbsenceType ? 'Zwykłe' : computeWorkKind(task);
+  const previousTaskEnd = previousTask?.end || '';
+  const nextTaskStart = nextTask?.start || '';
+  const startMaxValue = task.end
+    ? minutesToHHmm(Math.max(toMinutes(previousTaskEnd || '00:00'), toMinutes(task.end) - 15))
+    : nextTaskStart || '';
+  const endMinValue = task.start ? minutesToHHmm(toMinutes(task.start) + 15) : previousTaskEnd || '';
   const actionRef = useCallback(
     (node) => registerAnchor(task.id, node),
     [registerAnchor, task.id]
@@ -821,29 +945,56 @@ const TaskRow = memo(function TaskRow({
           disabled={task.locked || isAbsenceType}
         />
       </td>
-      <td className="p-2">
-        <input
-          value={task.client}
-          onChange={(e) => onFieldChange(task.id, { client: e.target.value })}
-          className="w-full rounded-lg border-2 border-slate-300 px-2 py-1"
-          placeholder="np. Klient"
-          disabled={task.locked || isAbsenceType}
-        />
-      </td>
-      <td className="p-2">
+      <td className="p-2 min-w-[320px]">
         <CrmProjectSelect
           value={task.project}
-          onChange={(next) => onFieldChange(task.id, { project: next })}
+          onChange={(next) =>
+            onFieldChange(task.id, {
+              project: next,
+              crmRegarding: null
+            })}
+          onSelectOption={(option, label) => {
+            const customerName = option.customerName || option.titleCustomer || '';
+            const kpName = option.ownerName || '';
+            onFieldChange(task.id, {
+              project: label,
+              client: customerName,
+              kp: kpName,
+              crmRegarding: {
+                id: String(option.category === 'opportunity' ? option.opportunityId || option.id : option.id)
+                  .replace(/^opportunity:/, '')
+                  .trim(),
+                logicalName: option.category === 'opportunity' ? 'opportunity' : 'itarapro_project',
+                name:
+                  option.category === 'opportunity'
+                    ? option.opportunityName || option.label
+                    : option.displayTitle || option.label,
+                label
+              }
+            });
+          }}
           options={crmProjects}
           disabled={task.locked || isAbsenceType}
           loading={crmProjectsLoading}
         />
       </td>
       <td className="p-2">
-        <TimeSelect value={task.start} onChange={(value) => onFieldChange(task.id, { start: value })} disabled={task.locked || isAbsenceType} />
+        <TimeSelect
+          value={task.start}
+          onChange={(value) => onFieldChange(task.id, { start: value })}
+          disabled={task.locked || isAbsenceType}
+          minValue={previousTaskEnd}
+          maxValue={startMaxValue}
+        />
       </td>
       <td className="p-2">
-        <TimeSelect value={task.end} onChange={(value) => onFieldChange(task.id, { end: value })} disabled={task.locked || isAbsenceType} />
+        <TimeSelect
+          value={task.end}
+          onChange={(value) => onFieldChange(task.id, { end: value })}
+          disabled={task.locked || isAbsenceType}
+          minValue={endMinValue}
+          maxValue={nextTaskStart}
+        />
       </td>
       <td className="p-2">
         <span className={`${CHIP} ${WORKKIND_STYLES[workKind]}`}>{workKind}</span>
@@ -904,6 +1055,14 @@ const TaskRow = memo(function TaskRow({
                 className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-slate-50"
               >
                 <CalendarPlus className="w-4 h-4" /> Do Outlooka
+              </button>
+              <button
+                data-task-actions-menu
+                onClick={() => onSendToCrm(task)}
+                disabled={crmSending}
+                className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+              >
+                {crmSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Wyślij do CRM
               </button>
             </div>,
             document.body
@@ -1006,20 +1165,24 @@ function EmployeeCalendar({ monthStart, selectedDate, setSelectedDate, statusByD
           const raw = statusByDate[key] || 'NONE';
           const status = raw === 'SENT' ? 'PLANNED' : raw;
           const mode = modeByDate[key];
+          const holiday = isPublicHoliday(d);
           const planned = 'bg-sky-100 border-sky-300 text-slate-900';
           const settled = 'bg-emerald-100 border-emerald-500 text-emerald-900';
           const absence = 'bg-red-100 border-red-500 text-red-900';
           const weekendCls = 'bg-slate-200 border-slate-300 text-slate-700';
+          const holidayCls = 'bg-orange-100 border-orange-400 text-orange-900';
           const none = `bg-white border-slate-300 ${outside ? 'text-slate-300' : ''}`;
           let tile = none;
-          if (weekend) tile = weekendCls;
-          if (!weekend) {
+          if (holiday) tile = holidayCls;
+          else if (weekend) tile = weekendCls;
+          else {
             if (status === 'SETTLED') tile = settled;
             else if (status === 'PLANNED') tile = planned;
           }
           if (
             (mode === 'VACATION' || mode === 'SICK' || mode === 'ABSENCE') &&
-            (status === 'PLANNED' || status === 'SETTLED')
+            (status === 'PLANNED' || status === 'SETTLED') &&
+            !holiday
           ) {
             tile = absence;
           }
@@ -1041,12 +1204,15 @@ function EmployeeCalendar({ monthStart, selectedDate, setSelectedDate, statusByD
           );
         })}
       </div>
-      <div className="mt-3 text-xs text-slate-500 flex items-center gap-4">
+      <div className="mt-3 text-xs text-slate-500 flex flex-wrap items-center gap-x-4 gap-y-2">
         <span className="inline-flex items-center gap-2">
           <span className="inline-block h-3 w-3 rounded-[6px] bg-sky-50 border border-sky-300" /> Zaplanowany
         </span>
         <span className="inline-flex items-center gap-2">
           <span className="inline-block h-3 w-3 rounded-[6px] bg-emerald-100 border-emerald-500" /> Rozliczony
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <span className="inline-block h-3 w-3 rounded-[6px] bg-orange-100 border border-orange-400" /> Święto
         </span>
         <span className="inline-flex items-center gap-2">
           <span className="inline-block h-3 w-3 rounded-full border-2 border-red-500 bg-red-200" /> Nieobecność
@@ -1084,14 +1250,41 @@ export default function EmployeePanel() {
   const [splitProcessing, setSplitProcessing] = useState(false);
   const [sendingPlan, setSendingPlan] = useState(false);
   const [sendingTasks, setSendingTasks] = useState(false);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const actionsMenuRef = useRef(null);
+  const [crmModalOpen, setCrmModalOpen] = useState(false);
+  const [crmCredentials, setCrmCredentials] = useState({ login: '', password: '' });
+  const [crmLoading, setCrmLoading] = useState(false);
+  const [crmError, setCrmError] = useState('');
+  const [crmConnected, setCrmConnected] = useState(false);
+  const [crmUser, setCrmUser] = useState(null);
   const [crmProjects, setCrmProjects] = useState([]);
   const [crmProjectsLoading, setCrmProjectsLoading] = useState(false);
   const [crmProjectsError, setCrmProjectsError] = useState('');
+  const [crmSendingTaskId, setCrmSendingTaskId] = useState(null);
+  const [crmImportingTasks, setCrmImportingTasks] = useState(false);
+  const crmAuth = useMemo(
+    () =>
+      crmConnected
+        ? {
+            login: crmCredentials.login.trim(),
+            password: crmCredentials.password,
+            domain: CRM_FIXED_DOMAIN
+          }
+        : null,
+    [crmConnected, crmCredentials.login, crmCredentials.password]
+  );
   const refreshCrmProjects = useCallback(async () => {
+    if (!crmAuth?.login || !crmAuth?.password) {
+      setCrmProjects([]);
+      setCrmProjectsError('');
+      setCrmProjectsLoading(false);
+      return;
+    }
     setCrmProjectsLoading(true);
     setCrmProjectsError('');
     try {
-      const items = await fetchCrmProjects();
+      const items = await fetchCrmProjects(crmAuth);
       setCrmProjects(items);
     } catch (err) {
       setCrmProjects([]);
@@ -1099,7 +1292,64 @@ export default function EmployeePanel() {
     } finally {
       setCrmProjectsLoading(false);
     }
-  }, []);
+  }, [crmAuth]);
+
+  const handleCrmSubmit = useCallback(
+    async (event) => {
+      if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
+      }
+      if (crmLoading) return;
+      setCrmError('');
+      const trimmedLogin = crmCredentials.login.trim();
+      if (!trimmedLogin || !crmCredentials.password) {
+        setCrmError('Wypełnij wszystkie pola');
+        return;
+      }
+      setCrmLoading(true);
+      try {
+        const response = await fetch(`${CRM_PROXY_URL}/crm/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            login: trimmedLogin,
+            password: crmCredentials.password,
+            domain: CRM_FIXED_DOMAIN
+          })
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          const message =
+            (payload && typeof payload.error === 'string' && payload.error.trim()) ||
+            `Połączenie z CRM nie powiodło się (status ${response.status}).`;
+          throw new Error(message);
+        }
+        setCrmConnected(true);
+        setCrmUser({
+          login: payload?.user || trimmedLogin,
+          domain: CRM_FIXED_DOMAIN
+        });
+        setCrmError('');
+        setCrmModalOpen(false);
+      } catch (err) {
+        setCrmConnected(false);
+        setCrmUser(null);
+        setCrmProjects([]);
+        if (err instanceof Error) {
+          const details = typeof err.message === 'string' ? err.message : '';
+          const isNetworkIssue = err.name === 'TypeError' || details.includes('Failed to fetch');
+          setCrmError(isNetworkIssue ? 'Brak połączenia z serwerem integracji CRM.' : details || 'Połączenie z CRM nie powiodło się.');
+        } else {
+          setCrmError('Połączenie z CRM nie powiodło się.');
+        }
+      } finally {
+        setCrmLoading(false);
+      }
+    },
+    [crmCredentials, crmLoading]
+  );
 
   useEffect(() => {
     setLoadingInitial(loadingDirectory);
@@ -1190,8 +1440,33 @@ export default function EmployeePanel() {
   }, [selectedEmployee?.id, dKey]);
 
   useEffect(() => {
+    if (!crmConnected) {
+      setCrmProjects([]);
+      setCrmProjectsError('');
+      setCrmProjectsLoading(false);
+      return;
+    }
     refreshCrmProjects();
-  }, [refreshCrmProjects]);
+  }, [crmConnected, refreshCrmProjects]);
+
+  useEffect(() => {
+    if (!actionsMenuOpen) return;
+
+    const handleClickOutside = (event) => {
+      if (actionsMenuRef.current && actionsMenuRef.current.contains(event.target)) return;
+      setActionsMenuOpen(false);
+    };
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') setActionsMenuOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [actionsMenuOpen]);
 
   useEffect(() => {
     if (!taskActionsMenu.id) return;
@@ -1908,7 +2183,7 @@ export default function EmployeePanel() {
     });
   }, [shifts]);
 
-  const importPlanToTasks = useCallback(() => {
+  const importPlanFallbackToTasks = useCallback(() => {
     const segments = (shifts || []).filter((segment) => segment.start && segment.end);
     if (!segments.length) return;
     const nowBase = Date.now();
@@ -1936,6 +2211,89 @@ export default function EmployeePanel() {
       items: generated
     }));
   }, [shifts]);
+
+  const importPlanToTasks = useCallback(async () => {
+    const fallbackImport = () => importPlanFallbackToTasks();
+    if (!selectedEmployee || crmImportingTasks) {
+      fallbackImport();
+      return;
+    }
+    if (!crmAuth?.login || !crmAuth?.password) {
+      fallbackImport();
+      return;
+    }
+
+    setCrmImportingTasks(true);
+    try {
+      const crmItems = await fetchCrmTasksForDate({
+        dateKey: dKey,
+        ownerName: selectedEmployee?.name || selectedEmployee?.fullName || '',
+        crmAuth
+      });
+
+      if (!crmItems.length) {
+        fallbackImport();
+        return;
+      }
+
+      const generated = crmItems.map((item, idx) => {
+        const regardingReference = item.regarding;
+        const crmMatch = regardingReference
+          ? crmProjects.find((crmItem) => {
+              const candidateId =
+                crmItem.category === 'opportunity'
+                  ? String(crmItem.opportunityId || crmItem.id || '').replace(/^opportunity:/, '').trim()
+                  : String(crmItem.id || '').trim();
+              return candidateId && candidateId === String(regardingReference.id || '').trim();
+            }) || null
+          : null;
+
+        return {
+          id: `crm-import-${item.activityId || `${Date.now()}-${idx}`}`,
+          type: item.plannerDetails?.type || 'Biuro',
+          subject: item.subject,
+          client: item.plannerDetails?.client || '',
+          kp: item.plannerDetails?.kp || '',
+          project:
+            crmMatch?.label ||
+            regardingReference?.name ||
+            '',
+          start: item.start || '',
+          end: item.end || '',
+          workKind: 'Zwykłe',
+          status:
+            Number(item.stateCode) === 1 || Number(item.statusCode) === 5
+              ? 'Zakończone'
+              : item.plannerDetails?.plannerStatus || 'Planowane',
+          locked: false,
+          sent: false,
+          _syncState: 'EDITED',
+          crmActivityId: item.activityId,
+          crmSyncedAt: new Date().toISOString(),
+          crmClosePending: false,
+          crmRegarding: regardingReference
+            ? {
+                id: String(regardingReference.id || '').trim(),
+                logicalName: String(regardingReference.logicalName || '').trim(),
+                name: crmMatch?.displayTitle || regardingReference.name || '',
+                label: crmMatch?.label || regardingReference.name || ''
+              }
+            : null
+        };
+      });
+
+      setSubDraft((prev) => ({
+        status: prev.status || 'DRAFT',
+        dayStatus: prev.dayStatus || 'W trakcie',
+        items: generated
+      }));
+    } catch (err) {
+      console.error('[employee] CRM import failed, fallback to local plan import', err);
+      fallbackImport();
+    } finally {
+      setCrmImportingTasks(false);
+    }
+  }, [crmAuth, crmImportingTasks, crmProjects, dKey, importPlanFallbackToTasks, selectedEmployee]);
 
   const setTask = useCallback(
     (id, patch) =>
@@ -2512,6 +2870,32 @@ Status: ${task.status || '-'}`;
       const existingIds = new Set(taskItems.map((item) => item.id));
       const uniqueIds = [...new Set(ids)].filter((taskId) => existingIds.has(taskId));
       if (!uniqueIds.length) return;
+      const tasksToDelete = taskItems.filter((item) => uniqueIds.includes(item.id));
+      const crmActivityIds = tasksToDelete
+        .map((item) => String(item.crmActivityId || '').trim())
+        .filter(Boolean);
+
+      if (crmActivityIds.length) {
+        if (!crmAuth?.login || !crmAuth?.password) {
+          const message = 'Aby usunąć powiązane zadanie z CRM, zaloguj się do CRM w panelu pracownika.';
+          setError(message);
+          if (typeof window !== 'undefined') {
+            window.alert(message);
+          }
+          return;
+        }
+        try {
+          await Promise.all(crmActivityIds.map((activityId) => deleteCrmTaskActivity(activityId, crmAuth)));
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          setError(message);
+          if (typeof window !== 'undefined') {
+            window.alert(`Nie udało się usunąć działania z CRM.\n\n${message}`);
+          }
+          return;
+        }
+      }
+
       const removalSet = new Set(uniqueIds);
       const remaining = taskItems
         .filter((item) => !removalSet.has(item.id))
@@ -2545,7 +2929,7 @@ Status: ${task.status || '-'}`;
         console.error(err);
       }
     },
-    [taskItems, persistTaskDraft, planned]
+    [crmAuth, planned, persistTaskDraft, setError, taskItems]
   );
 
   const handleTaskLock = useCallback(
@@ -2608,6 +2992,101 @@ Status: ${task.status || '-'}`;
       closeTaskActions();
     },
     [deleteTasksByIds, closeTaskActions]
+  );
+
+  const handleTaskSendToCrm = useCallback(
+    async (task) => {
+      if (!task) return;
+      if (!crmAuth?.login || !crmAuth?.password) {
+        if (typeof window !== 'undefined') {
+          window.alert('Aby wysłać działanie do CRM, zaloguj się do CRM w panelu pracownika.');
+        }
+        return;
+      }
+
+      const subject = String(task.subject || '').trim();
+      if (!subject) {
+        if (typeof window !== 'undefined') {
+          window.alert('Aby wysłać działanie do CRM, uzupełnij temat zadania.');
+        }
+        return;
+      }
+
+      const storedRegarding =
+        task.crmRegarding &&
+        task.crmRegarding.id &&
+        task.crmRegarding.logicalName
+          ? {
+              id: String(task.crmRegarding.id).trim(),
+              logicalName: String(task.crmRegarding.logicalName).trim(),
+              name: String(task.crmRegarding.name || task.project || '').trim()
+            }
+          : null;
+
+      const crmReference = !storedRegarding
+        ? crmProjects.find((item) => item.label === task.project) || null
+        : null;
+
+      const regarding = storedRegarding || (crmReference
+        ? {
+            id: String(crmReference.category === 'opportunity' ? crmReference.opportunityId || crmReference.id : crmReference.id)
+              .replace(/^opportunity:/, '')
+              .trim(),
+            logicalName: crmReference.category === 'opportunity' ? 'opportunity' : 'itarapro_project',
+            name:
+              crmReference.category === 'opportunity'
+                ? crmReference.opportunityName || crmReference.label
+                : crmReference.displayTitle || crmReference.label
+          }
+        : null);
+
+      setCrmSendingTaskId(task.id);
+      try {
+        const created = await createCrmTaskActivity({
+          task,
+          dateKey: dKey,
+          employeeName: selectedEmployee?.name || selectedEmployee?.fullName || '',
+          regarding,
+          crmAuth
+        });
+
+        let closeWarning = '';
+        if (task.status === 'Zakończone' && created.activityId) {
+          try {
+            await closeCrmTaskActivity(created.activityId, crmAuth);
+          } catch (closeErr) {
+            closeWarning =
+              closeErr instanceof Error
+                ? closeErr.message
+                : 'Nie udało się automatycznie zamknąć działania w CRM.';
+          }
+        }
+
+        setTask(task.id, {
+          crmActivityId: created.activityId,
+          crmSyncedAt: new Date().toISOString(),
+          crmClosePending: task.status === 'Zakończone' && !!closeWarning
+        });
+        closeTaskActions();
+
+        if (typeof window !== 'undefined') {
+          window.alert(
+            `Działanie CRM utworzone poprawnie.${created.activityId ? `\nID: ${created.activityId}` : ''}${
+              closeWarning ? `\n\nUwaga: rekord zapisano w CRM, ale nie udało się ustawić stanu "Zakończone".` : ''
+            }`
+          );
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        if (typeof window !== 'undefined') {
+          window.alert(message);
+        }
+      } finally {
+        setCrmSendingTaskId(null);
+      }
+    },
+    [closeTaskActions, crmAuth, crmProjects, dKey, selectedEmployee, setTask]
   );
 
   const sendTasksToManager = async () => {
@@ -2813,6 +3292,47 @@ Status: ${task.status || '-'}`;
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {crmConnected && (
+            <span className="inline-flex items-center gap-1 rounded-full border-2 border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-600">
+              <Plug className="w-3 h-3" />
+              <span className="flex items-center gap-1">
+                Połączenie z CRM
+                {crmUser?.login && (
+                  <span className="text-[11px] font-normal text-emerald-500 sm:text-xs">
+                    {crmUser.login}
+                    {crmUser?.domain ? `@${crmUser.domain}` : ''}
+                  </span>
+                )}
+              </span>
+            </span>
+          )}
+          <div className="relative" ref={actionsMenuRef}>
+            <button
+              type="button"
+              onClick={() => setActionsMenuOpen((open) => !open)}
+              className={BTN}
+              aria-haspopup="true"
+              aria-expanded={actionsMenuOpen}
+              aria-label="Menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            {actionsMenuOpen && (
+              <div className="absolute right-0 z-30 mt-2 w-48 rounded-2xl border-2 border-slate-200 bg-white shadow-xl p-1 text-sm">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActionsMenuOpen(false);
+                    setCrmError('');
+                    setCrmModalOpen(true);
+                  }}
+                  className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-slate-50"
+                >
+                  <Plug className="w-4 h-4" /> Integracja z CRM
+                </button>
+              </div>
+            )}
+          </div>
           <button onClick={() => setCalendarOpen((o) => !o)} className={BTN} aria-label="Pokaż/ukryj kalendarz">
             <CalIcon className="w-5 h-5" />
           </button>
@@ -3133,8 +3653,13 @@ Status: ${task.status || '-'}`;
             ) : null}
           </span>
         </div>
-        {(crmProjectsLoading || crmProjectsError || crmProjects.length > 0) && (
+        {(!crmConnected || crmProjectsLoading || crmProjectsError || crmProjects.length > 0) && (
           <div className="flex flex-wrap items-center gap-2 text-xs mb-3">
+            {!crmConnected && (
+              <span className="inline-flex items-center gap-1 text-slate-500">
+                <Plug className="w-3 h-3" /> Zaloguj się do CRM, aby pobrać projekty, importować działania i wysyłać zadania na swoje konto CRM.
+              </span>
+            )}
             {crmProjectsLoading && (
               <span className="inline-flex items-center gap-1 text-slate-400">
                 <Loader2 className="w-3 h-3 animate-spin" /> Ładowanie listy projektów z CRM...
@@ -3187,7 +3712,6 @@ Status: ${task.status || '-'}`;
                   </th>
                   <th className="p-2 text-left">Tryb pracy</th>
                   <th className="p-2 text-left">Temat</th>
-                  <th className="p-2 text-left">Klient</th>
                   <th className="p-2 text-left">Dotyczy</th>
                   <th className="p-2 text-left">Start</th>
                   <th className="p-2 text-left">Koniec</th>
@@ -3198,7 +3722,7 @@ Status: ${task.status || '-'}`;
                 </tr>
               </thead>
               <tbody>
-                {taskItems.map((item) => (
+                {taskItems.map((item, index) => (
                   <TaskRow
                     key={item.id}
                     selected={selectedTaskIds.includes(item.id)}
@@ -3212,10 +3736,14 @@ Status: ${task.status || '-'}`;
                     onLock={handleTaskLock}
                     onUnlock={handleTaskUnlock}
                     onExport={handleTaskExport}
+                    onSendToCrm={handleTaskSendToCrm}
                     onDelete={handleTaskDelete}
                     computeWorkKind={wkOf}
                     crmProjectsLoading={crmProjectsLoading}
                     crmProjects={crmProjects}
+                    previousTask={index > 0 ? taskItems[index - 1] : null}
+                    nextTask={index < taskItems.length - 1 ? taskItems[index + 1] : null}
+                    crmSending={crmSendingTaskId === item.id}
                   />
                 ))}
               </tbody>
@@ -3266,7 +3794,9 @@ Status: ${task.status || '-'}`;
                 if (!selectedTaskIds.length) return;
                 const confirmed = typeof window === 'undefined'
                   ? true
-                  : window.confirm('Czy na pewno usunąć zaznaczone zadania?');
+                  : window.confirm(
+                      'Czy na pewno usunąć zaznaczone zadania?\n\nUsunięcie spowoduje również usunięcie powiązanego zadania z CRM.'
+                    );
                 if (!confirmed) return;
                 deleteTasksByIds(selectedTaskIds);
               }}
@@ -3278,8 +3808,9 @@ Status: ${task.status || '-'}`;
             >
               <Trash2 className="w-4 h-4" /> Usuń
             </button>
-            <button onClick={importPlanToTasks} className={BTN}>
-              <CalendarDays className="w-4 h-4" /> Importuj plan
+            <button onClick={importPlanToTasks} className={BTN} disabled={crmImportingTasks}>
+              {crmImportingTasks ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarDays className="w-4 h-4" />}
+              {crmImportingTasks ? 'Pobieram z CRM' : 'Importuj plan'}
             </button>
           </div>
           <div className="flex items-center gap-2">
@@ -3307,6 +3838,95 @@ Status: ${task.status || '-'}`;
           </div>
         </div>
       </section>
+
+      <Modal
+        open={crmModalOpen}
+        title="Integracja z CRM"
+        onClose={() => {
+          setCrmModalOpen(false);
+          setCrmError('');
+        }}
+        actions={
+          <>
+            <button
+              onClick={() => {
+                setCrmModalOpen(false);
+                setCrmError('');
+              }}
+              className={BTN}
+            >
+              Zamknij
+            </button>
+            <button
+              type="submit"
+              form="employee-crm-integration-form"
+              className={cls(
+                'rounded-xl px-3 py-2 text-sm text-white',
+                crmLoading ? 'bg-slate-400 cursor-wait' : 'bg-slate-800 hover:bg-slate-900'
+              )}
+              disabled={crmLoading}
+            >
+              {crmLoading ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Łączenie...
+                </span>
+              ) : (
+                'Połącz'
+              )}
+            </button>
+          </>
+        }
+      >
+        <form id="employee-crm-integration-form" onSubmit={handleCrmSubmit} className="grid gap-3">
+          {crmConnected && (
+            <div className="flex items-center gap-2 rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              <Plug className="w-4 h-4" />
+              <div>
+                <div className="font-medium">Połączenie z CRM ustanowione</div>
+                {crmUser?.login && (
+                  <div className="text-xs text-emerald-600">
+                    Zalogowano jako {crmUser.login}
+                    {crmUser?.domain ? `@${crmUser.domain}` : ''}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {crmError && (
+            <div className="rounded-xl border-2 border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{crmError}</div>
+          )}
+          <label className="text-sm block">
+            Login
+            <input
+              value={crmCredentials.login}
+              onChange={(e) => {
+                setCrmCredentials((prev) => ({ ...prev, login: e.target.value }));
+                if (crmError) setCrmError('');
+              }}
+              className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2"
+              placeholder="np. jan.kowalski"
+              disabled={crmLoading}
+            />
+          </label>
+          <label className="text-sm block">
+            Hasło
+            <input
+              type="password"
+              value={crmCredentials.password}
+              onChange={(e) => {
+                setCrmCredentials((prev) => ({ ...prev, password: e.target.value }));
+                if (crmError) setCrmError('');
+              }}
+              className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2"
+              placeholder="••••••••"
+              disabled={crmLoading}
+            />
+          </label>
+          <div className="text-xs text-slate-500">
+            Domena CRM: <span className="font-medium text-slate-700">{CRM_FIXED_DOMAIN}</span>
+          </div>
+        </form>
+      </Modal>
     </motion.div>
   );
 }

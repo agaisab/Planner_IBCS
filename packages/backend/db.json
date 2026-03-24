@@ -2,13 +2,13 @@
   "managers": [
     {
       "id": "m1759924410365",
-      "name": "Kierownik"
+      "name": "Andrzej Dędka"
     }
   ],
   "employees": [
     {
       "id": "e1761214277518",
-      "name": "Jan Kowalski",
+      "name": "Łukasz Basiaga",
       "role": "Technik",
       "employmentType": "Pełen etat",
       "managerId": "m1759924410365",
@@ -26,17 +26,71 @@
           "type": "SENT",
           "at": "2025-10-23T10:11:26.784Z",
           "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-11-03T13:26:40.152Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] abc (Klient: Zakłady Produkcyjne B-D S.A.)"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-11-03T13:26:40.152Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-11-03T13:38:30.008Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-11-03T13:38:40.961Z",
+          "text": "Pracownik: Zmieniono zadanie [08:00–16:00] abc (Klient: Zakłady Produkcyjne B-D S.A.): status Planowane → Zakończone"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-11-03T13:38:40.961Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "SENT",
+          "at": "2025-11-03T13:43:04.621Z",
+          "text": "Kierownik: 08:00–16:00 Biuro"
         }
       ],
       "shifts": [
         {
           "mode": "OFFICE",
           "start": "08:00",
-          "end": "16:00"
+          "end": "16:00",
+          "note": ""
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-23T10:11:26.784Z"
+      "sentAt": "2025-11-03T13:43:04.621Z",
+      "submission": {
+        "items": [
+          {
+            "id": "t1762176390594",
+            "type": "Biuro",
+            "subject": "abc",
+            "client": "Zakłady Produkcyjne B-D S.A.",
+            "project": "PR3565 - B-D Zawiercie - bramki Datalogic 4szt + Logopack aplikator",
+            "start": "08:00",
+            "end": "16:00",
+            "workKind": "Zwykłe",
+            "status": "Zakończone",
+            "sent": true,
+            "locked": true,
+            "kp": "Basiaga Łukasz"
+          }
+        ],
+        "status": "SUBMITTED",
+        "submittedAt": "2025-11-03T13:38:40.961Z",
+        "reportedMinutes": 480,
+        "dayStatus": "Rozliczone",
+        "updatedAt": "2025-11-03T13:38:24.311Z"
+      }
     },
     {
       "id": "e1761214277518_2025-10-02",
@@ -48,17 +102,30 @@
           "type": "SENT",
           "at": "2025-10-23T10:11:26.784Z",
           "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-11-05T09:33:12.122Z",
+          "text": "Pracownik: Zmieniono zakres 1: czas 08:00–16:00 → —–—, tryb Biuro → Urlop"
         }
       ],
       "shifts": [
         {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
+          "mode": "VACATION",
+          "start": "",
+          "end": ""
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-23T10:11:26.784Z"
+      "sentAt": "2025-11-05T09:33:12.122Z",
+      "submission": {
+        "items": [],
+        "status": "DRAFT",
+        "submittedAt": null,
+        "reportedMinutes": 0,
+        "dayStatus": "W trakcie",
+        "updatedAt": "2025-11-03T13:43:36.827Z"
+      }
     },
     {
       "id": "e1761214277518_2025-10-03",
@@ -136,6 +203,26 @@
           "type": "SENT",
           "at": "2025-10-23T10:11:26.784Z",
           "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-11-05T09:34:00.427Z",
+          "text": "Pracownik: Dodano zadanie [08:00–10:00] Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-11-05T09:34:00.427Z",
+          "text": "Pracownik: Dodano zadanie [10:00–11:30] Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2025-11-05T09:34:00.427Z",
+          "text": "Pracownik: Dodano zadanie [11:30–16:00] Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2025-11-05T09:34:00.427Z",
+          "text": "Pracownik: przesłał 3 zadań"
         }
       ],
       "shifts": [
@@ -146,7 +233,54 @@
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-23T10:11:26.784Z"
+      "sentAt": "2025-10-23T10:11:26.784Z",
+      "submission": {
+        "items": [
+          {
+            "id": "plan-1762335205904-0",
+            "type": "Biuro",
+            "subject": "",
+            "client": "",
+            "project": "",
+            "start": "08:00",
+            "end": "10:00",
+            "workKind": "Zwykłe",
+            "status": "Planowane",
+            "locked": true,
+            "sent": true
+          },
+          {
+            "id": "t1762335226640",
+            "type": "Biuro",
+            "subject": "",
+            "client": "",
+            "project": "",
+            "start": "10:00",
+            "end": "11:30",
+            "workKind": "Zwykłe",
+            "status": "Planowane",
+            "locked": true,
+            "sent": true
+          },
+          {
+            "id": "t1762335233389",
+            "type": "Biuro",
+            "subject": "",
+            "client": "",
+            "project": "",
+            "start": "11:30",
+            "end": "16:00",
+            "workKind": "Zwykłe",
+            "status": "Planowane",
+            "locked": true,
+            "sent": true
+          }
+        ],
+        "status": "SUBMITTED",
+        "submittedAt": "2025-11-05T09:34:00.427Z",
+        "reportedMinutes": 480,
+        "dayStatus": "W trakcie"
+      }
     },
     {
       "id": "e1761214277518_2025-10-09",
@@ -497,17 +631,22 @@
           "type": "SENT",
           "at": "2025-10-23T10:11:26.784Z",
           "text": "Kierownik: Auto (październik 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-11-04T13:18:17.715Z",
+          "text": "Pracownik: Zmieniono zakres 1: czas 08:00–16:00 → —–—, tryb Biuro → Urlop"
         }
       ],
       "shifts": [
         {
-          "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
+          "mode": "VACATION",
+          "start": "",
+          "end": ""
         }
       ],
       "sent": true,
-      "sentAt": "2025-10-23T10:11:26.784Z"
+      "sentAt": "2025-11-04T13:18:17.715Z"
     },
     {
       "id": "e1761214277518_2025-10-30",
@@ -552,6 +691,762 @@
       ],
       "sent": true,
       "sentAt": "2025-10-23T10:11:26.784Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-01",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-01",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-11-04T13:14:25.433Z",
+          "text": "Pracownik: Zmieniono zakres 1: czas 08:00–16:00 → 08:00–14:00"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2025-11-04T13:14:25.433Z",
+          "text": "Pracownik: Dodano zakres 2: 14:00–16:00 Delegacja"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "14:00"
+        },
+        {
+          "mode": "TRAVEL",
+          "start": "14:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:14:25.433Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-02",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-02",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-03",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-03",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-04",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-04",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-05",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-05",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-08",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-08",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-09",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-09",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-10",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-10",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-11",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-11",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-12",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-12",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-15",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-15",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-16",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-16",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-17",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-17",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-18",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-18",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-19",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-19",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-22",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-22",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-23",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-23",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-24",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-24",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-25",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-25",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-26",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-26",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-29",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-29",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-30",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-30",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2025-12-31",
+      "employeeId": "e1761214277518",
+      "date": "2025-12-31",
+      "note": "",
+      "logs": [
+        {
+          "type": "SENT",
+          "at": "2025-11-04T13:13:54.466Z",
+          "text": "Kierownik: Auto (grudzień 2025): 08:00–16:00 Biuro"
+        }
+      ],
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "sent": true,
+      "sentAt": "2025-11-04T13:13:54.466Z"
+    },
+    {
+      "id": "e1761214277518_2026-03-24",
+      "employeeId": "e1761214277518",
+      "date": "2026-03-24",
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "note": "",
+      "sent": true,
+      "sentAt": "2026-03-24T07:30:08.182Z",
+      "logs": [
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-24T07:30:08.182Z",
+          "text": "Pracownik: Dodano zakres 1: 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2026-03-24T08:28:30.327Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2026-03-24T08:37:15.386Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2026-03-24T08:55:00.131Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] PLANNER CRM (Klient: L&G FRUIT SERVICES)"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2026-03-24T08:55:00.131Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2026-03-24T08:56:09.536Z",
+          "text": "Pracownik: Zmieniono zadanie [08:00–16:00] PLANNER CRM (Klient: L&G FRUIT SERVICES): status Planowane → Zakończone"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2026-03-24T08:56:09.536Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2026-03-24T09:02:04.733Z",
+          "text": "Pracownik: Dodano zadanie [08:00–16:00] ZAPYTANIE CRM (Klient: GRUPA STEINHOF SP. Z.O.O.)"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2026-03-24T09:02:04.733Z",
+          "text": "Pracownik: przesłał 1 zadań"
+        }
+      ],
+      "submission": {
+        "items": [],
+        "status": "DRAFT",
+        "submittedAt": null,
+        "reportedMinutes": 0,
+        "dayStatus": "W trakcie",
+        "updatedAt": "2026-03-24T09:51:51.155Z"
+      }
+    },
+    {
+      "id": "e1761214277518_2026-03-26",
+      "employeeId": "e1761214277518",
+      "date": "2026-03-26",
+      "shifts": [
+        {
+          "mode": "REMOTE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "note": "",
+      "sent": true,
+      "sentAt": "2026-03-24T07:33:37.927Z",
+      "logs": [
+        {
+          "type": "MAN_PLAN_EDIT",
+          "at": "2026-03-24T07:33:37.927Z",
+          "text": "Kierownik: Dodano zakres 1: 08:00–16:00 Zdalnie"
+        }
+      ],
+      "submission": {
+        "items": [],
+        "status": "DRAFT",
+        "submittedAt": null,
+        "reportedMinutes": 0,
+        "dayStatus": "W trakcie",
+        "updatedAt": "2026-03-24T08:57:11.583Z"
+      }
+    },
+    {
+      "id": "e1761214277518_2026-03-25",
+      "employeeId": "e1761214277518",
+      "date": "2026-03-25",
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "note": "",
+      "sent": true,
+      "sentAt": "2026-03-24T09:15:36.998Z",
+      "logs": [
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-24T07:36:19.428Z",
+          "text": "Pracownik: Dodano zakres 1: —–— Nieobecność"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-24T09:15:36.998Z",
+          "text": "Pracownik: Zmieniono zakres 1: czas —–— → 08:00–16:00, tryb Nieobecność → Biuro"
+        }
+      ],
+      "submission": {
+        "items": [],
+        "status": "DRAFT",
+        "submittedAt": null,
+        "reportedMinutes": 0,
+        "dayStatus": "W trakcie",
+        "updatedAt": "2026-03-24T09:43:23.309Z"
+      }
+    },
+    {
+      "id": "e1761214277518_2026-03-19",
+      "employeeId": "e1761214277518",
+      "date": "2026-03-19",
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "note": "",
+      "sent": true,
+      "sentAt": "2026-03-24T08:13:54.112Z",
+      "logs": [
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-24T08:13:54.112Z",
+          "text": "Pracownik: Dodano zakres 1: 08:00–16:00 Biuro"
+        }
+      ],
+      "submission": {
+        "items": [],
+        "status": "DRAFT",
+        "submittedAt": null,
+        "reportedMinutes": 0,
+        "dayStatus": "W trakcie",
+        "updatedAt": "2026-03-24T08:25:22.985Z"
+      }
+    },
+    {
+      "id": "e1761214277518_2026-03-18",
+      "employeeId": "e1761214277518",
+      "date": "2026-03-18",
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "note": "",
+      "sent": true,
+      "sentAt": "2026-03-24T08:31:41.992Z",
+      "logs": [
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-24T08:31:41.992Z",
+          "text": "Pracownik: Dodano zakres 1: 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2026-03-24T08:32:43.449Z",
+          "text": "Pracownik: przesłał 2 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2026-03-24T08:33:24.314Z",
+          "text": "Pracownik: przesłał 2 zadań"
+        }
+      ],
+      "submission": {
+        "items": [],
+        "status": "DRAFT",
+        "submittedAt": null,
+        "reportedMinutes": 0,
+        "dayStatus": "W trakcie",
+        "updatedAt": "2026-03-24T08:36:33.010Z"
+      }
+    },
+    {
+      "id": "e1761214277518_2026-03-17",
+      "employeeId": "e1761214277518",
+      "date": "2026-03-17",
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "note": "",
+      "sent": true,
+      "sentAt": "2026-03-24T09:27:56.611Z",
+      "logs": [
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-24T09:27:56.611Z",
+          "text": "Pracownik: Dodano zakres 1: 08:00–16:00 Biuro"
+        }
+      ],
+      "submission": {
+        "items": [],
+        "status": "DRAFT",
+        "submittedAt": null,
+        "reportedMinutes": 0,
+        "dayStatus": "W trakcie",
+        "updatedAt": "2026-03-24T09:31:25.121Z"
+      }
     }
   ],
   "monthlyLogs": [
@@ -562,6 +1457,14 @@
       "type": "AUTO_MONTH",
       "at": "2025-10-23T10:11:26.784Z",
       "text": "Kierownik: Zaplanowano miesiąc październik 2025"
+    },
+    {
+      "id": "ml1762262039521",
+      "employeeId": "e1761214277518",
+      "ym": "2025-12",
+      "type": "AUTO_MONTH",
+      "at": "2025-11-04T13:13:54.466Z",
+      "text": "Kierownik: Zaplanowano miesiąc grudzień 2025"
     }
   ]
 }

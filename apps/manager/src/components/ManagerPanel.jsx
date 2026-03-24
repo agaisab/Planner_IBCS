@@ -14,6 +14,7 @@ import {
   BarChart3,
   Printer,
   Settings,
+  Plug,
   Download,
   Menu,
   Loader2,
@@ -54,7 +55,8 @@ import {
   useEmployeePlans,
   useManagersAndEmployees,
   summarizePlan,
-  buildPlanLogs
+  buildPlanLogs,
+  isPublicHoliday
 } from '@planner/shared';
 import Logo from '../assets/ibcs-logo.png';
 
@@ -62,6 +64,8 @@ const BTN =
   'inline-flex items-center gap-2 rounded-xl border-2 border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed';
 const CARD = 'rounded-2xl border-2 border-slate-300 bg-white shadow-sm p-4';
 const CHIP = 'inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-sm';
+const CRM_PROXY_URL = import.meta.env?.VITE_CRM_PROXY_URL || 'http://localhost:5050';
+const CRM_FIXED_DOMAIN = import.meta.env?.VITE_CRM_DOMAIN || 'bcspol';
 
 const planIdFor = (employeeId, dateKey) => `${employeeId}_${dateKey}`;
 
@@ -412,20 +416,24 @@ function EmployeeCalendar({ monthStart, selectedDate, setSelectedDate, statusByD
           const raw = statusByDate[key] || 'NONE';
           const status = raw === 'SENT' ? 'PLANNED' : raw;
           const mode = modeByDate[key];
+          const holiday = isPublicHoliday(d);
           const planned = 'bg-sky-100 border-sky-300 text-slate-900';
           const settled = 'bg-emerald-100 border-emerald-500 text-emerald-900';
           const absence = 'bg-red-100 border-red-500 text-red-900';
           const weekendCls = 'bg-slate-200 border-slate-300 text-slate-700';
+          const holidayCls = 'bg-orange-100 border-orange-400 text-orange-900';
           const none = `bg-white border-slate-300 ${outside ? 'text-slate-300' : ''}`;
           let tile = none;
-          if (weekend) tile = weekendCls;
-          if (!weekend) {
+          if (holiday) tile = holidayCls;
+          else if (weekend) tile = weekendCls;
+          else {
             if (status === 'SETTLED') tile = settled;
             else if (status === 'PLANNED') tile = planned;
           }
           if (
             (mode === 'VACATION' || mode === 'SICK' || mode === 'ABSENCE') &&
-            (status === 'PLANNED' || status === 'SETTLED')
+            (status === 'PLANNED' || status === 'SETTLED') &&
+            !holiday
           ) {
             tile = absence;
           }
@@ -447,12 +455,15 @@ function EmployeeCalendar({ monthStart, selectedDate, setSelectedDate, statusByD
           );
         })}
       </div>
-      <div className="mt-3 text-xs text-slate-500 flex items-center gap-4">
+      <div className="mt-3 text-xs text-slate-500 flex flex-wrap items-center gap-x-4 gap-y-2">
         <span className="inline-flex items-center gap-2">
           <span className="inline-block h-3 w-3 rounded-[6px] bg-sky-50 border border-sky-300" /> Zaplanowany
         </span>
         <span className="inline-flex items-center gap-2">
           <span className="inline-block h-3 w-3 rounded-[6px] bg-emerald-100 border-emerald-500" /> Rozliczony
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <span className="inline-block h-3 w-3 rounded-[6px] bg-orange-100 border border-orange-400" /> Święto
         </span>
         <span className="inline-flex items-center gap-2">
           <span className="inline-block h-3 w-3 rounded-full border-2 border-red-500 bg-red-200" /> Nieobecność
@@ -521,11 +532,73 @@ const [deletingManager, setDeletingManager] = useState(false);
   const [reportMonth, setReportMonth] = useState(() => `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, '0')}`);
   const [reportDetailed, setReportDetailed] = useState(false);
   const [logsConfirmOpen, setLogsConfirmOpen] = useState(false);
-const [logsClearing, setLogsClearing] = useState(false);
-const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
-const actionsMenuRef = useRef(null);
+  const [logsClearing, setLogsClearing] = useState(false);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const actionsMenuRef = useRef(null);
+  const [crmModalOpen, setCrmModalOpen] = useState(false);
+  const [crmCredentials, setCrmCredentials] = useState({ login: '', password: '' });
+  const [crmLoading, setCrmLoading] = useState(false);
+  const [crmError, setCrmError] = useState('');
+  const [crmConnected, setCrmConnected] = useState(false);
+  const [crmUser, setCrmUser] = useState(null);
 
 const selectedEmployeeId = selectedEmployee?.id;
+
+  const handleCrmSubmit = useCallback(
+    async (event) => {
+      if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
+      }
+      if (crmLoading) return;
+      setCrmError('');
+      const trimmedLogin = crmCredentials.login.trim();
+      if (!trimmedLogin || !crmCredentials.password) {
+        setCrmError('Wypełnij wszystkie pola');
+        return;
+      }
+      setCrmLoading(true);
+      try {
+        const response = await fetch(`${CRM_PROXY_URL}/crm/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            login: trimmedLogin,
+            password: crmCredentials.password,
+            domain: CRM_FIXED_DOMAIN
+          })
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          const message =
+            (payload && typeof payload.error === 'string' && payload.error.trim()) ||
+            `Połączenie z CRM nie powiodło się (status ${response.status}).`;
+          throw new Error(message);
+        }
+        setCrmConnected(true);
+        setCrmUser({
+          login: payload?.user || trimmedLogin,
+          domain: CRM_FIXED_DOMAIN
+        });
+        setCrmError('');
+        setCrmModalOpen(false);
+      } catch (err) {
+        setCrmConnected(false);
+        setCrmUser(null);
+        if (err instanceof Error) {
+          const details = typeof err.message === 'string' ? err.message : '';
+          const isNetworkIssue = err.name === 'TypeError' || details.includes('Failed to fetch');
+          setCrmError(isNetworkIssue ? 'Brak połączenia z serwerem integracji CRM.' : details || 'Połączenie z CRM nie powiodło się.');
+        } else {
+          setCrmError('Połączenie z CRM nie powiodło się.');
+        }
+      } finally {
+        setCrmLoading(false);
+      }
+    },
+    [crmCredentials, crmLoading]
+  );
 
   useEffect(() => {
     if (directoryError) setError(directoryError);
@@ -1327,6 +1400,20 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {crmConnected && (
+            <span className="inline-flex items-center gap-1 rounded-full border-2 border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-600">
+              <Plug className="w-3 h-3" />
+              <span className="flex items-center gap-1">
+                Połączenie z CRM
+                {crmUser?.login && (
+                  <span className="text-[11px] font-normal text-emerald-500 sm:text-xs">
+                    {crmUser.login}
+                    {crmUser?.domain ? `@${crmUser.domain}` : ''}
+                  </span>
+                )}
+              </span>
+            </span>
+          )}
           <div className="relative" ref={actionsMenuRef}>
             <button
               type="button"
@@ -1359,6 +1446,17 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
                   className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-slate-50"
                 >
                   <BarChart3 className="w-4 h-4" /> Raporty
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActionsMenuOpen(false);
+                    setCrmError('');
+                    setCrmModalOpen(true);
+                  }}
+                  className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-slate-50"
+                >
+                  <Plug className="w-4 h-4" /> Integracja z CRM
                 </button>
               </div>
             )}
@@ -1748,7 +1846,6 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
                   <tr>
                     <th className="p-2 text-left">Tryb pracy</th>
                     <th className="p-2 text-left">Temat</th>
-                    <th className="p-2 text-left">Klient</th>
                     <th className="p-2 text-left">Dotyczy</th>
                     <th className="p-2 text-left">Start</th>
                     <th className="p-2 text-left">Koniec</th>
@@ -1784,8 +1881,15 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
                           </span>
                         </td>
                         <td className="p-2">{item.subject || '—'}</td>
-                        <td className="p-2">{item.client || '—'}</td>
-                        <td className="p-2">{item.project || '—'}</td>
+                        <td className="p-2 min-w-[320px]">
+                          <div className="whitespace-normal leading-tight">{item.project || '—'}</div>
+                          <div className="text-xs text-slate-500 whitespace-normal leading-tight">
+                            Klient: {item.client || '—'}
+                          </div>
+                          <div className="text-xs text-slate-400 whitespace-normal leading-tight">
+                            KP: {item.kp || item.ownerName || '—'}
+                          </div>
+                        </td>
                         <td className="p-2">{formatTimeLabel(item.start)}</td>
                         <td className="p-2">{formatTimeLabel(item.end)}</td>
                         <td className="p-2 w-24">
@@ -2229,6 +2333,95 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
             </select>
           </label>
         </div>
+      </Modal>
+
+      <Modal
+        open={crmModalOpen}
+        title="Integracja z CRM"
+        onClose={() => {
+          setCrmModalOpen(false);
+          setCrmError('');
+        }}
+        actions={
+          <>
+            <button
+              onClick={() => {
+                setCrmModalOpen(false);
+                setCrmError('');
+              }}
+              className={BTN}
+            >
+              Zamknij
+            </button>
+            <button
+              type="submit"
+              form="crm-integration-form"
+              className={cls(
+                'rounded-xl px-3 py-2 text-sm text-white',
+                crmLoading ? 'bg-slate-400 cursor-wait' : 'bg-slate-800 hover:bg-slate-900'
+              )}
+              disabled={crmLoading}
+            >
+              {crmLoading ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Łączenie...
+                </span>
+              ) : (
+                'Połącz'
+              )}
+            </button>
+          </>
+        }
+      >
+        <form id="crm-integration-form" onSubmit={handleCrmSubmit} className="grid gap-3">
+          {crmConnected && (
+            <div className="flex items-center gap-2 rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              <Plug className="w-4 h-4" />
+              <div>
+                <div className="font-medium">Połączenie z CRM ustanowione</div>
+                {crmUser?.login && (
+                  <div className="text-xs text-emerald-600">
+                    Zalogowano jako {crmUser.login}
+                    {crmUser?.domain ? `@${crmUser.domain}` : ''}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {crmError && (
+            <div className="rounded-xl border-2 border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{crmError}</div>
+          )}
+          <label className="text-sm block">
+            Login
+            <input
+              value={crmCredentials.login}
+              onChange={(e) => {
+                setCrmCredentials((prev) => ({ ...prev, login: e.target.value }));
+                if (crmError) setCrmError('');
+              }}
+              className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2"
+              placeholder="np. jan.kowalski"
+              disabled={crmLoading}
+            />
+          </label>
+          <label className="text-sm block">
+            Hasło
+            <input
+              type="password"
+              value={crmCredentials.password}
+              onChange={(e) => {
+                setCrmCredentials((prev) => ({ ...prev, password: e.target.value }));
+                if (crmError) setCrmError('');
+              }}
+              className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2"
+              placeholder="••••••••"
+              disabled={crmLoading}
+            />
+          </label>
+          <div className="text-xs text-slate-500">
+            Domena CRM: <span className="font-medium text-slate-700">{CRM_FIXED_DOMAIN}</span>
+          </div>
+        </form>
       </Modal>
     </MotionDiv>
   );
