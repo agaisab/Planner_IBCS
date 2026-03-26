@@ -14,10 +14,20 @@ const getCrmProjectsPath = () =>
 const getCrmOpportunitiesPath = () =>
   import.meta.env?.VITE_CRM_OPPORTUNITY_PATH ||
   'OpportunitySet?$select=Name,OpportunityId,AccountId,OwnerId,StateCode,StatusCode&$filter=StateCode/Value eq 0&$orderby=Name asc';
+const getCrmVehiclesPath = () =>
+  import.meta.env?.VITE_CRM_VEHICLE_PATH ||
+  'EquipmentSet?$select=EquipmentId,Name&$orderby=Name asc';
 const getCrmProjectLabelField = () =>
   import.meta.env?.VITE_CRM_PROJECT_LABEL_FIELD || 'Itarapro_title_customer';
 const getCrmProjectValueField = () =>
   import.meta.env?.VITE_CRM_PROJECT_VALUE_FIELD || 'Itarapro_projectId';
+
+export const CRM_TRAVEL_STATUS = {
+  IN_PROGRESS: 862510000,
+  ACCEPTED: 862510002,
+  FILLED: 862510006,
+  PASSED_TO_FA: 862510007
+};
 
 const toTimeMinutes = (hhmm) => {
   if (!hhmm) return NaN;
@@ -284,6 +294,10 @@ export const fetchCrmProjects = async (crmAuth = null, crmScope = 'default') => 
           : typeof accountReference === 'string'
           ? accountReference.trim()
           : '';
+      const accountId =
+        typeof accountReference === 'object' && accountReference !== null
+          ? (accountReference.Id || accountReference.id || '').trim()
+          : '';
       const opportunityId =
         typeof opportunityReference === 'object' && opportunityReference !== null
           ? (opportunityReference.Id || opportunityReference.id || '').trim()
@@ -313,6 +327,7 @@ export const fetchCrmProjects = async (crmAuth = null, crmScope = 'default') => 
         displayTitle,
         ownerName,
         customerName,
+        accountId,
         number: projectNumber,
         category: 'project',
         categoryLabel: 'PROJEKTY',
@@ -356,6 +371,10 @@ export const fetchCrmProjects = async (crmAuth = null, crmScope = 'default') => 
           : typeof accountReference === 'string'
           ? accountReference.trim()
           : '';
+      const accountId =
+        typeof accountReference === 'object' && accountReference !== null
+          ? (accountReference.Id || accountReference.id || '').trim()
+          : '';
       const ownerName =
         typeof ownerReference === 'object' && ownerReference !== null
           ? (ownerReference.Name || ownerReference.name || '').trim()
@@ -373,6 +392,7 @@ export const fetchCrmProjects = async (crmAuth = null, crmScope = 'default') => 
         titleCustomer: '',
         ownerName,
         customerName,
+        accountId,
         number: '',
         category: 'opportunity',
         categoryLabel: 'SZANSE SPRZEDAŻY',
@@ -395,6 +415,33 @@ export const fetchCrmProjects = async (crmAuth = null, crmScope = 'default') => 
   });
 
   return unique;
+};
+
+export const fetchCrmVehicles = async (crmAuth = null, crmScope = 'default') => {
+  const vehicles = await fetchAllCrmPages(getCrmVehiclesPath(), 'pojazdów', crmAuth, crmScope);
+
+  return vehicles
+    .map((item) => {
+      const id =
+        pickFieldValue(item, 'EquipmentId') ??
+        pickFieldValue(item, 'equipmentid') ??
+        pickFieldValue(item, 'Id') ??
+        pickFieldValue(item, 'id') ??
+        null;
+      const name =
+        pickFieldValue(item, 'Name') ??
+        pickFieldValue(item, 'name') ??
+        '';
+
+      if (!id || !name) return null;
+
+      return {
+        id: String(id).trim(),
+        label: String(name).trim(),
+        raw: item
+      };
+    })
+    .filter(Boolean);
 };
 
 const normalizeComparableText = (value) =>
@@ -485,6 +532,15 @@ const toLocalTimeLabel = (value) => {
   return `${hours}:${minutes}`;
 };
 
+const toLocalDateLabel = (value) => {
+  if (!value) return '';
+  const rawValue = String(value).trim();
+  const odataMatch = rawValue.match(/^\/Date\((\d+)(?:[+-]\d+)?\)\/$/);
+  const date = odataMatch ? new Date(Number(odataMatch[1])) : new Date(rawValue);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
 const parsePlannerDescription = (description) => {
   const parsed = {};
   String(description || '')
@@ -566,7 +622,10 @@ const derivePlannerSubjectFromCrm = (subject, regardingName = '') => {
 const isSystemCrmTask = (subject) => {
   const normalized = normalizeComparableText(subject);
   if (!normalized) return false;
-  return normalized.startsWith('delegacja ') && normalized.includes('oczekuje na akceptacje');
+  return (
+    (normalized.startsWith('delegacja ') && normalized.includes('oczekuje na akceptacje')) ||
+    normalized.includes('praca zdalna')
+  );
 };
 
 const sanitizeCrmDayEntries = (entries = []) => {
@@ -594,6 +653,84 @@ const parseCrmOptionSetValue = (value) =>
   typeof value === 'object' && value !== null && 'Value' in value ? Number(value.Value) : Number(value);
 
 const mapCrmActivityKindToWorkKind = (value) => CRM_ACTIVITY_KIND_TO_WORK_KIND[parseCrmOptionSetValue(value)] || 'Zwykłe';
+
+export const fetchCrmAbsencesForEmployee = async ({ ownerName = '', crmAuth = null, crmScope = 'default' } = {}) => {
+  const now = new Date();
+  const rangeStart = new Date(now.getFullYear() - 1, 0, 1, 0, 0, 0, 0).toISOString();
+  const rangeEnd = new Date(now.getFullYear() + 2, 0, 1, 0, 0, 0, 0).toISOString();
+  const path =
+    `Itarapro_absence_administrationSet?$select=` +
+    [
+      'Itarapro_absence_administrationId',
+      'Itarapro_name',
+      'Itarapro_description',
+      'Itarapro_from',
+      'Itarapro_until',
+      'Itarapro_days',
+      'Itarapro_absence_reason',
+      'OwnerId',
+      'statecode',
+      'statuscode',
+      'CreatedOn',
+      'ModifiedOn'
+    ].join(',') +
+    `&$filter=(Itarapro_from lt ${crmDateLiteral(rangeEnd)} and Itarapro_until ge ${crmDateLiteral(rangeStart)})` +
+    `&$orderby=Itarapro_from desc`;
+
+  const results = await fetchAllCrmPages(path, 'urlopów i nieobecności', crmAuth, crmScope);
+
+  return results
+    .map((item) => {
+      const id =
+        pickFieldValue(item, 'Itarapro_absence_administrationId') ??
+        pickFieldValue(item, 'itarapro_absence_administrationid') ??
+        null;
+      const ownerReference = pickFieldValue(item, 'OwnerId') ?? pickFieldValue(item, 'ownerid') ?? null;
+      const ownerResolvedName =
+        typeof ownerReference === 'object' && ownerReference !== null
+          ? String(ownerReference.Name || ownerReference.name || '').trim()
+          : typeof ownerReference === 'string'
+          ? ownerReference.trim()
+          : '';
+      const name = String(
+        pickFieldValue(item, 'Itarapro_name') ?? pickFieldValue(item, 'itarapro_name') ?? ''
+      ).trim();
+      const description = String(
+        pickFieldValue(item, 'Itarapro_description') ?? pickFieldValue(item, 'itarapro_description') ?? ''
+      ).trim();
+      const fromRaw = pickFieldValue(item, 'Itarapro_from') ?? pickFieldValue(item, 'itarapro_from') ?? null;
+      const untilRaw = pickFieldValue(item, 'Itarapro_until') ?? pickFieldValue(item, 'itarapro_until') ?? null;
+      const days = Number(
+        pickFieldValue(item, 'Itarapro_days') ?? pickFieldValue(item, 'itarapro_days') ?? 0
+      );
+      const stateCode = parseCrmOptionSetValue(pickFieldValue(item, 'statecode'));
+      const statusCode = parseCrmOptionSetValue(pickFieldValue(item, 'statuscode'));
+      const reasonCode = parseCrmOptionSetValue(
+        pickFieldValue(item, 'Itarapro_absence_reason') ?? pickFieldValue(item, 'itarapro_absence_reason')
+      );
+
+      const reasonFromName = name.includes(' - ') ? name.split(' - ')[0].trim() : name;
+      const reasonLabel = reasonFromName || description || `Nieobecność ${Number.isFinite(reasonCode) ? reasonCode : ''}`.trim();
+
+      return {
+        id: id ? String(id).trim() : '',
+        ownerName: ownerResolvedName,
+        name,
+        description,
+        reasonCode: Number.isFinite(reasonCode) ? reasonCode : null,
+        reasonLabel,
+        from: toLocalDateLabel(fromRaw),
+        until: toLocalDateLabel(untilRaw),
+        days: Number.isFinite(days) ? days : 0,
+        stateCode: Number.isFinite(stateCode) ? stateCode : null,
+        statusCode: Number.isFinite(statusCode) ? statusCode : null,
+        statusLabel: stateCode === 0 ? 'Planowane' : stateCode === 1 ? 'Zamknięte' : '—',
+        matchesOwner: matchesOwnerHints(ownerResolvedName, ownerName)
+      };
+    })
+    .filter((item) => item.id && item.matchesOwner)
+    .sort((left, right) => String(right.from || '').localeCompare(String(left.from || '')));
+};
 
 export const fetchCrmTasksForDate = async ({ dateKey, ownerName = '', crmAuth = null, crmScope = 'default' } = {}) => {
   const dayRange = buildCrmDayRangeUtc(dateKey);
@@ -1008,6 +1145,189 @@ const buildCrmTaskActivityBody = ({
   };
 };
 
+const buildCrmAppointmentActivityBody = ({
+  trip,
+  dateKey,
+  regarding = null
+}) => {
+  const from = String(trip?.from || '').trim() || String(trip?.subject || '').trim();
+  const to = String(trip?.to || '').trim() || String(trip?.location || '').trim();
+  if (!from) {
+    throw new Error('Nie można wysłać przejazdu do CRM bez miejsca wyjazdu.');
+  }
+
+  const startIso = toCrmIsoDate(dateKey, trip?.start, 8 * 60);
+  const endIso =
+    toCrmIsoDate(dateKey, trip?.end) ||
+    (startIso ? new Date(new Date(startIso).getTime() + 30 * 60 * 1000).toISOString() : null);
+  const startMinutes = toTimeMinutes(trip?.start);
+  const endMinutes = toTimeMinutes(trip?.end);
+  const actualDurationMinutes =
+    Number.isFinite(startMinutes) && Number.isFinite(endMinutes) && endMinutes > startMinutes
+      ? endMinutes - startMinutes
+      : null;
+
+  return {
+    __metadata: { type: 'Microsoft.Crm.Sdk.Data.Services.Appointment' },
+    Subject: from,
+    ...(to ? { Location: to } : {}),
+    ...(startIso ? { ScheduledStart: startIso } : {}),
+    ...(endIso ? { ScheduledEnd: endIso } : {}),
+    ...(startIso ? { ActualStart: startIso } : {}),
+    ...(endIso ? { ActualEnd: endIso } : {}),
+    ...(actualDurationMinutes != null ? { ActualDurationMinutes: actualDurationMinutes } : {}),
+    ...(regarding
+      ? {
+          RegardingObjectId: {
+            Id: regarding.id,
+            LogicalName: regarding.logicalName,
+            Name: regarding.name
+          }
+        }
+      : {})
+  };
+};
+
+const buildCrmEntityReference = (reference, fallbackLogicalName = '') => {
+  if (!reference?.id) return null;
+  const id = String(reference.id || '').trim();
+  const logicalName = String(reference.logicalName || fallbackLogicalName || '').trim();
+  if (!id || !logicalName) return null;
+  return {
+    Id: id,
+    LogicalName: logicalName,
+    ...(reference.name ? { Name: String(reference.name).trim() } : {})
+  };
+};
+
+const parseCrmDecimal = (rawValue) => {
+  if (rawValue == null) return null;
+  const normalized = String(rawValue)
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(',', '.');
+  if (!normalized) return null;
+  const numericValue = Number(normalized);
+  return Number.isFinite(numericValue) ? numericValue : null;
+};
+
+const buildCrmTravelBody = ({ travel }) => {
+  const startDate = String(travel?.startDate || '').trim();
+  const endDate = String(travel?.endDate || '').trim() || startDate;
+  const startTime = String(travel?.startTime || '').trim();
+  const endTime = String(travel?.endTime || '').trim();
+  const purpose = String(travel?.purpose || '').trim();
+  const destinationCity = String(travel?.destinationCity || '').trim();
+  const destinationAddress = String(travel?.destinationAddress || '').trim();
+
+  if (!startDate) throw new Error('Uzupełnij datę początkową delegacji.');
+  if (!endDate) throw new Error('Uzupełnij datę końcową delegacji.');
+  if (!purpose) throw new Error('Uzupełnij cel delegacji.');
+
+  const startIso = toCrmIsoDate(startDate, startTime, 8 * 60);
+  const endIso = toCrmIsoDate(endDate, endTime, 16 * 60);
+
+  if (!startIso || !endIso) {
+    throw new Error('Nie udało się zbudować zakresu czasu delegacji.');
+  }
+
+  const vehicleReference = buildCrmEntityReference(travel?.vehicle, 'equipment');
+  if (!vehicleReference) {
+    throw new Error('Wybierz samochód do delegacji.');
+  }
+
+  const projectReference =
+    travel?.regarding?.logicalName === 'itarapro_project'
+      ? buildCrmEntityReference(travel.regarding, 'itarapro_project')
+      : null;
+  const opportunityReference =
+    travel?.regarding?.logicalName === 'opportunity'
+      ? buildCrmEntityReference(travel.regarding, 'opportunity')
+      : null;
+  const accountReference = buildCrmEntityReference(travel?.account, 'account');
+  const travelStatusValue = Number(travel?.travelStatusValue);
+  const moneyFieldMap = {
+    dietCost: 'obx_DietCost',
+    fuelCost: 'obx_Fuel',
+    parkingCost: 'obx_Parking',
+    highwayCost: 'obx_Highway',
+    hotelCost: 'obx_Hotel',
+    transportCost: 'obx_Transport',
+    additionalCost: 'obx_AdditionalCosts',
+    foodCost: 'obx_Food',
+    advanceCost: 'obx_Advance'
+  };
+
+  const moneyFields = Object.entries(moneyFieldMap).reduce((acc, [localKey, crmKey]) => {
+    const rawValue = travel?.[localKey];
+    if (rawValue == null || rawValue === '') return acc;
+    const numericValue = parseCrmDecimal(rawValue);
+    if (!Number.isFinite(numericValue)) {
+      throw new Error(`Pole kosztowe ${crmKey} ma nieprawidłowy format liczby.`);
+    }
+    return {
+      ...acc,
+      [crmKey]: {
+        __metadata: { type: 'Microsoft.Crm.Sdk.Data.Services.Money' },
+        Value: numericValue.toFixed(4)
+      }
+    };
+  }, {});
+
+  return {
+    __metadata: { type: 'Microsoft.Crm.Sdk.Data.Services.Itaratrv_travel' },
+    ...(String(travel?.crmTravelNumber || travel?.travelNumber || '').trim()
+      ? { itaratrv_name: String(travel?.crmTravelNumber || travel?.travelNumber || '').trim() }
+      : {}),
+    Itaratrv_travel_start: startIso,
+    Itaratrv_travel_end: endIso,
+    obx_Vehicle: vehicleReference,
+    obx_WhatFor: purpose,
+    ...(destinationCity ? { Itaratrv_travel_to_city: destinationCity } : {}),
+    ...(destinationAddress ? { Itaratrv_travel_to_street1: destinationAddress } : {}),
+    ...(typeof travel?.toAccept === 'boolean' ? { obx_ToAccept: travel.toAccept } : {}),
+    ...(Number.isFinite(travelStatusValue) ? { obx_TravelStatus: { Value: travelStatusValue } } : {}),
+    ...(projectReference ? { itaratrv_travel_project_id: projectReference } : {}),
+    ...(opportunityReference ? { obx_Opportunity: opportunityReference } : {}),
+    ...(accountReference ? { itaratrv_travel_account_id: accountReference } : {}),
+    ...moneyFields
+  };
+};
+
+const syncCrmTravelName = async ({ travelId, travelNumber, crmAuth = null, crmScope = 'default' }) => {
+  const trimmedId = String(travelId || '').trim();
+  const trimmedNumber = String(travelNumber || '').trim();
+  if (!trimmedId || !trimmedNumber) return;
+
+  const response = await fetch(`${getCrmProxyBase()}/crm/odata`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      path: `Itaratrv_travelSet(guid'${trimmedId}')`,
+      method: 'POST',
+      headers: {
+        'X-HTTP-Method': 'MERGE'
+      },
+      body: {
+        __metadata: { type: 'Microsoft.Crm.Sdk.Data.Services.Itaratrv_travel' },
+        itaratrv_name: trimmedNumber
+      },
+      ...buildCrmSessionPayload({ crmAuth, crmScope })
+    })
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      (payload && typeof payload.error === 'string' && payload.error.trim()) ||
+      `Synchronizacja nazwy delegacji CRM zakończyła się błędem (status ${response.status}).`;
+    throw new Error(message);
+  }
+};
+
 export const createCrmTaskActivity = async ({
   task,
   dateKey,
@@ -1043,6 +1363,50 @@ export const createCrmTaskActivity = async ({
     const message =
       (payload && typeof payload.error === 'string' && payload.error.trim()) ||
       `Tworzenie działania CRM zakończyło się błędem (status ${response.status}).`;
+    throw new Error(message);
+  }
+
+  const data = payload?.data?.d ?? payload?.data ?? payload;
+  return {
+    activityId: data?.ActivityId || null,
+    subject: data?.Subject || subject,
+    raw: data
+  };
+};
+
+export const createCrmAppointmentActivity = async ({
+  trip,
+  dateKey,
+  regarding = null,
+  crmAuth = null,
+  crmScope = 'default'
+}) => {
+  const subject = String(trip?.from || trip?.subject || '').trim();
+  const body = buildCrmAppointmentActivityBody({
+    trip,
+    dateKey,
+    regarding
+  });
+
+  const response = await fetch(`${getCrmProxyBase()}/crm/odata`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      path: 'AppointmentSet',
+      method: 'POST',
+      body,
+      ...buildCrmSessionPayload({ crmAuth, crmScope })
+    })
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      (payload && typeof payload.error === 'string' && payload.error.trim()) ||
+      `Tworzenie terminu CRM zakończyło się błędem (status ${response.status}).`;
     throw new Error(message);
   }
 
@@ -1175,6 +1539,73 @@ export const closeCrmTaskActivity = async (activityId, crmAuth = null, crmScope 
   return payload?.data ?? payload;
 };
 
+export const closeCrmAppointmentActivity = async (activityId, crmAuth = null, crmScope = 'default') => {
+  const trimmedId = String(activityId || '').trim();
+  if (!trimmedId) {
+    throw new Error('Brak identyfikatora terminu CRM do zamknięcia.');
+  }
+
+  const soapBody = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:i="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:a="http://schemas.microsoft.com/xrm/2011/Contracts"
+               xmlns:b="http://schemas.microsoft.com/crm/2011/Contracts"
+               xmlns:c="http://schemas.datacontract.org/2004/07/System.Collections.Generic">
+  <soap:Body>
+    <Execute xmlns="http://schemas.microsoft.com/xrm/2011/Contracts/Services">
+      <request i:type="b:SetStateRequest">
+        <a:Parameters>
+          <a:KeyValuePairOfstringanyType>
+            <c:key>EntityMoniker</c:key>
+            <c:value i:type="a:EntityReference">
+              <a:Id>${trimmedId}</a:Id>
+              <a:LogicalName>appointment</a:LogicalName>
+              <a:Name i:nil="true" />
+            </c:value>
+          </a:KeyValuePairOfstringanyType>
+          <a:KeyValuePairOfstringanyType>
+            <c:key>State</c:key>
+            <c:value i:type="a:OptionSetValue">
+              <a:Value>1</a:Value>
+            </c:value>
+          </a:KeyValuePairOfstringanyType>
+          <a:KeyValuePairOfstringanyType>
+            <c:key>Status</c:key>
+            <c:value i:type="a:OptionSetValue">
+              <a:Value>3</a:Value>
+            </c:value>
+          </a:KeyValuePairOfstringanyType>
+        </a:Parameters>
+        <a:RequestId i:nil="true" />
+        <a:RequestName>SetState</a:RequestName>
+      </request>
+    </Execute>
+  </soap:Body>
+</soap:Envelope>`;
+
+  const response = await fetch(`${getCrmProxyBase()}/crm/execute`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      body: soapBody,
+      ...buildCrmSessionPayload({ crmAuth, crmScope })
+    })
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      (payload && typeof payload.error === 'string' && payload.error.trim()) ||
+      `Zamykanie terminu CRM zakończyło się błędem (status ${response.status}).`;
+    throw new Error(message);
+  }
+
+  return payload?.data ?? payload;
+};
+
 export const deleteCrmTaskActivity = async (activityId, crmAuth = null, crmScope = 'default') => {
   const trimmedId = String(activityId || '').trim();
   if (!trimmedId) {
@@ -1208,6 +1639,117 @@ export const deleteCrmTaskActivity = async (activityId, crmAuth = null, crmScope
   return true;
 };
 
+export const deleteCrmTravel = async (travelId, crmAuth = null, crmScope = 'default') => {
+  const trimmedId = String(travelId || '').trim();
+  if (!trimmedId) {
+    throw new Error('Brak identyfikatora delegacji CRM do usunięcia.');
+  }
+
+  const response = await fetch(`${getCrmProxyBase()}/crm/odata`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      path: `Itaratrv_travelSet(guid'${trimmedId}')`,
+      method: 'POST',
+      headers: {
+        'X-HTTP-Method': 'DELETE'
+      },
+      ...buildCrmSessionPayload({ crmAuth, crmScope })
+    })
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      (payload && typeof payload.error === 'string' && payload.error.trim()) ||
+      `Usuwanie delegacji CRM zakończyło się błędem (status ${response.status}).`;
+    throw new Error(message);
+  }
+
+  return true;
+};
+
+export const createCrmTravel = async ({ travel, crmAuth = null, crmScope = 'default' }) => {
+  const body = buildCrmTravelBody({ travel });
+
+  const response = await fetch(`${getCrmProxyBase()}/crm/odata`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      path: 'Itaratrv_travelSet',
+      method: 'POST',
+      body,
+      ...buildCrmSessionPayload({ crmAuth, crmScope })
+    })
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      (payload && typeof payload.error === 'string' && payload.error.trim()) ||
+      `Tworzenie delegacji CRM zakończyło się błędem (status ${response.status}).`;
+    throw new Error(message);
+  }
+
+  const data = payload?.data?.d ?? payload?.data ?? payload;
+  const travelId = data?.Itaratrv_travelId || null;
+  const travelNumber = data?.Itaratrv_travel_number || '';
+  if (travelId && travelNumber) {
+    await syncCrmTravelName({ travelId, travelNumber, crmAuth, crmScope }).catch(() => {});
+  }
+  return {
+    travelId,
+    travelNumber,
+    raw: data
+  };
+};
+
+export const updateCrmTravel = async ({ travelId, travel, crmAuth = null, crmScope = 'default' }) => {
+  const trimmedId = String(travelId || '').trim();
+  if (!trimmedId) {
+    throw new Error('Brak identyfikatora delegacji CRM do aktualizacji.');
+  }
+
+  const body = buildCrmTravelBody({ travel });
+
+  const response = await fetch(`${getCrmProxyBase()}/crm/odata`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      path: `Itaratrv_travelSet(guid'${trimmedId}')`,
+      method: 'POST',
+      headers: {
+        'X-HTTP-Method': 'MERGE'
+      },
+      body,
+      ...buildCrmSessionPayload({ crmAuth, crmScope })
+    })
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      (payload && typeof payload.error === 'string' && payload.error.trim()) ||
+      `Aktualizacja delegacji CRM zakończyła się błędem (status ${response.status}).`;
+    throw new Error(message);
+  }
+
+  return {
+    travelId: trimmedId,
+    travelNumber: travel?.travelNumber || '',
+    raw: payload?.data?.d ?? payload?.data ?? payload
+  };
+};
+
 export const API = {
   fetchManagers,
   createManager,
@@ -1228,11 +1770,17 @@ export const API = {
   deleteMonthlyLog,
   deleteMonthlyLogsForEmployee,
   fetchCrmProjects,
+  fetchCrmVehicles,
   fetchCrmTasksForDate,
   createCrmTaskActivity,
+  createCrmAppointmentActivity,
   updateCrmTaskActivity,
   closeCrmTaskActivity,
-  deleteCrmTaskActivity
+  closeCrmAppointmentActivity,
+  deleteCrmTaskActivity,
+  deleteCrmTravel,
+  createCrmTravel,
+  updateCrmTravel
 };
 
 export default API;

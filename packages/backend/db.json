@@ -2409,7 +2409,7 @@
             "projectFullLabel": "",
             "start": "06:00",
             "end": "08:00",
-            "workKind": "Zwykłe",
+            "workKind": "+ 50%",
             "status": "Zakończone",
             "locked": true,
             "sent": false,
@@ -2454,7 +2454,7 @@
             "projectFullLabel": "GXO dla PMI / Roboty XP15",
             "start": "16:00",
             "end": "18:00",
-            "workKind": "Zwykłe",
+            "workKind": "+ 50%",
             "status": "Zakończone",
             "locked": true,
             "sent": false,
@@ -2479,7 +2479,7 @@
             "projectFullLabel": "",
             "start": "18:00",
             "end": "20:00",
-            "workKind": "Zwykłe",
+            "workKind": "+ 50%",
             "status": "Zakończone",
             "locked": true,
             "sent": false,
@@ -2494,8 +2494,9 @@
         "submittedAt": null,
         "reportedMinutes": 840,
         "dayStatus": "Rozliczone w CRM",
-        "updatedAt": "2026-03-24T13:00:59.706Z"
-      }
+        "updatedAt": "2026-03-26T11:32:28.912Z"
+      },
+      "travelRequest": null
     },
     {
       "id": "e1774354893822_2026-03-11",
@@ -3814,13 +3815,7 @@
       "employeeId": "e1774348375722",
       "date": "2026-03-02",
       "note": "",
-      "logs": [
-        {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -3836,13 +3831,7 @@
       "employeeId": "e1774348375722",
       "date": "2026-03-03",
       "note": "",
-      "logs": [
-        {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -3858,13 +3847,7 @@
       "employeeId": "e1774348375722",
       "date": "2026-03-04",
       "note": "",
-      "logs": [
-        {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -3873,20 +3856,38 @@
         }
       ],
       "sent": true,
-      "sentAt": "2026-03-26T07:47:23.807Z"
+      "sentAt": "2026-03-26T07:47:23.807Z",
+      "travelRequest": null,
+      "submission": {
+        "items": [
+          {
+            "id": "plan-1774528743035-0",
+            "type": "Biuro",
+            "subject": "",
+            "client": "",
+            "project": "",
+            "start": "08:00",
+            "end": "16:00",
+            "workKind": "Zwykłe",
+            "status": "Planowane",
+            "locked": true,
+            "sent": false,
+            "prevSyncState": "DRAFT"
+          }
+        ],
+        "status": "DRAFT",
+        "submittedAt": null,
+        "reportedMinutes": 480,
+        "dayStatus": "W trakcie",
+        "updatedAt": "2026-03-26T12:39:03.035Z"
+      }
     },
     {
       "id": "e1774348375722_2026-03-05",
       "employeeId": "e1774348375722",
       "date": "2026-03-05",
       "note": "",
-      "logs": [
-        {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -3902,13 +3903,7 @@
       "employeeId": "e1774348375722",
       "date": "2026-03-06",
       "note": "",
-      "logs": [
-        {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -3936,7 +3931,7 @@
             "sent": false,
             "prevSyncState": "DRAFT",
             "crmActivityId": "b8475225-8727-f111-bb0b-00155d023200",
-            "crmSyncedAt": "2026-03-24T13:56:30.748Z",
+            "crmSyncedAt": "2026-03-26T12:37:32.783Z",
             "crmClosePending": false,
             "crmRegarding": {
               "id": "ae521b35-2ced-f011-bb0b-00155d023200",
@@ -3950,21 +3945,16 @@
         "submittedAt": null,
         "reportedMinutes": 120,
         "dayStatus": "W trakcie",
-        "updatedAt": "2026-03-24T13:56:30.748Z"
-      }
+        "updatedAt": "2026-03-26T12:37:32.783Z"
+      },
+      "travelRequest": null
     },
     {
       "id": "e1774348375722_2026-03-09",
       "employeeId": "e1774348375722",
       "date": "2026-03-09",
       "note": "",
-      "logs": [
-        {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -3980,13 +3970,7 @@
       "employeeId": "e1774348375722",
       "date": "2026-03-10",
       "note": "",
-      "logs": [
-        {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -4004,9 +3988,34 @@
       "note": "",
       "logs": [
         {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
+          "type": "EMP_TASK_EDIT",
+          "at": "2026-03-26T12:14:54.308Z",
+          "text": "Pracownik: Zmieniono zadanie [16:00–19:00] TEMAT2: temat \"—\" → \"TEMAT2\""
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2026-03-26T12:14:54.308Z",
+          "text": "Pracownik: przesłał 5 zadań"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2026-03-26T12:15:43.724Z",
+          "text": "Pracownik: Zmieniono zadanie [10:00–16:00] TEMAT1 (Klient: GXO Logistics Beverages Poland Sp. z o.o.): klient — → GXO Logistics Beverages Poland Sp. z o.o., dotyczy — → PR3692 - GXO - Testy Robota XP15, status Planowane → Zakończone"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2026-03-26T12:15:43.724Z",
+          "text": "Pracownik: przesłał 2 zadań"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2026-03-26T12:19:07.803Z",
+          "text": "Pracownik: przesłał 2 zadań"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T12:35:29.201Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Delegacja → Biuro"
         }
       ],
       "shifts": [
@@ -4017,20 +4026,38 @@
         }
       ],
       "sent": true,
-      "sentAt": "2026-03-26T07:47:23.807Z"
+      "sentAt": "2026-03-26T12:35:29.201Z",
+      "travelRequest": null,
+      "submission": {
+        "items": [
+          {
+            "id": "plan-1774528582701-0",
+            "type": "Biuro",
+            "subject": "",
+            "client": "",
+            "project": "",
+            "start": "08:00",
+            "end": "16:00",
+            "workKind": "Zwykłe",
+            "status": "Planowane",
+            "locked": true,
+            "sent": false,
+            "prevSyncState": "DRAFT"
+          }
+        ],
+        "status": "DRAFT",
+        "submittedAt": null,
+        "reportedMinutes": 480,
+        "dayStatus": "W trakcie",
+        "updatedAt": "2026-03-26T12:36:22.701Z"
+      }
     },
     {
       "id": "e1774348375722_2026-03-12",
       "employeeId": "e1774348375722",
       "date": "2026-03-12",
       "note": "",
-      "logs": [
-        {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -4048,9 +4075,14 @@
       "note": "",
       "logs": [
         {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
+          "type": "MAN_PLAN_EDIT",
+          "at": "2026-03-26T09:29:25.027Z",
+          "text": "Kierownik: Zmieniono zakres 1: tryb Biuro → Delegacja"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T12:35:54.918Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Delegacja → Biuro"
         }
       ],
       "shifts": [
@@ -4061,20 +4093,38 @@
         }
       ],
       "sent": true,
-      "sentAt": "2026-03-26T07:47:23.807Z"
+      "sentAt": "2026-03-26T12:35:54.918Z",
+      "travelRequest": null,
+      "submission": {
+        "items": [
+          {
+            "id": "plan-1774528769624-0",
+            "type": "Biuro",
+            "subject": "",
+            "client": "",
+            "project": "",
+            "start": "08:00",
+            "end": "16:00",
+            "workKind": "Zwykłe",
+            "status": "Planowane",
+            "locked": true,
+            "sent": false,
+            "prevSyncState": "DRAFT"
+          }
+        ],
+        "status": "DRAFT",
+        "submittedAt": null,
+        "reportedMinutes": 480,
+        "dayStatus": "W trakcie",
+        "updatedAt": "2026-03-26T12:39:29.624Z"
+      }
     },
     {
       "id": "e1774348375722_2026-03-16",
       "employeeId": "e1774348375722",
       "date": "2026-03-16",
       "note": "",
-      "logs": [
-        {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
-        }
-      ],
+      "logs": [],
       "shifts": [
         {
           "mode": "OFFICE",
@@ -4122,13 +4172,7 @@
       "note": "",
       "sent": true,
       "sentAt": "2026-03-26T07:47:23.807Z",
-      "logs": [
-        {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
-        }
-      ],
+      "logs": [],
       "submission": {
         "items": [
           {
@@ -4166,19 +4210,34 @@
       ],
       "note": "",
       "sent": true,
-      "sentAt": "2026-03-26T07:47:23.807Z",
+      "sentAt": "2026-03-26T12:33:55.187Z",
       "logs": [
         {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T09:13:16.074Z",
+          "text": "Pracownik: Zmieniono zakres 1: czas 08:00–16:00 → —–—, tryb Biuro → Nieobecność"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T09:16:34.066Z",
+          "text": "Pracownik: Zmieniono zakres 1: czas —–— → 08:00–16:00, tryb Nieobecność → Biuro"
+        },
+        {
+          "type": "EMP_PLAN_MOD",
+          "at": "2026-03-26T11:46:20.720Z",
+          "text": "Pracownik: 05:00–21:00 Delegacja"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T12:33:55.187Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Delegacja → Biuro"
         }
       ],
       "submission": {
         "items": [
           {
-            "id": "plan-1774362309089-0",
-            "type": "Biuro",
+            "id": "plan-1774526329038-0",
+            "type": "Delegacja",
             "subject": "",
             "client": "",
             "project": "",
@@ -4195,8 +4254,9 @@
         "submittedAt": null,
         "reportedMinutes": 480,
         "dayStatus": "W trakcie",
-        "updatedAt": "2026-03-24T14:25:09.089Z"
-      }
+        "updatedAt": "2026-03-26T11:58:49.038Z"
+      },
+      "travelRequest": null
     },
     {
       "id": "e1774348375722_2026-03-19",
@@ -4205,9 +4265,9 @@
       "note": "",
       "logs": [
         {
-          "type": "SENT",
-          "at": "2026-03-26T07:47:23.807Z",
-          "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T12:34:02.656Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Delegacja → Biuro"
         }
       ],
       "shifts": [
@@ -4218,7 +4278,7 @@
         }
       ],
       "sent": true,
-      "sentAt": "2026-03-26T07:47:23.807Z",
+      "sentAt": "2026-03-26T12:34:02.656Z",
       "submission": {
         "items": [
           {
@@ -4241,7 +4301,8 @@
         "reportedMinutes": 480,
         "dayStatus": "W trakcie",
         "updatedAt": "2026-03-24T14:25:01.192Z"
-      }
+      },
+      "travelRequest": null
     },
     {
       "id": "e1774348375722_2026-03-20",
@@ -4256,7 +4317,7 @@
       ],
       "note": "",
       "sent": true,
-      "sentAt": "2026-03-26T07:47:23.807Z",
+      "sentAt": "2026-03-26T12:34:10.545Z",
       "logs": [
         {
           "type": "EMP_PLAN_EDIT",
@@ -4272,6 +4333,11 @@
           "type": "SENT",
           "at": "2026-03-26T07:47:23.807Z",
           "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T12:34:10.545Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Delegacja → Biuro"
         }
       ],
       "submission": {
@@ -4296,7 +4362,8 @@
         "reportedMinutes": 480,
         "dayStatus": "W trakcie",
         "updatedAt": "2026-03-24T14:25:00.396Z"
-      }
+      },
+      "travelRequest": null
     },
     {
       "id": "e1774348375722_2026-03-23",
@@ -4308,6 +4375,16 @@
           "type": "SENT",
           "at": "2026-03-26T07:47:23.807Z",
           "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_TASK_EDIT",
+          "at": "2026-03-26T09:12:22.560Z",
+          "text": "Pracownik: Dodano zadanie [12:00–16:00] hfjfj (Klient: GRUPA STEINHOF SP. Z.O.O.)"
+        },
+        {
+          "type": "EMP_SUBMIT",
+          "at": "2026-03-26T09:12:22.560Z",
+          "text": "Pracownik: przesłał 1 zadań"
         }
       ],
       "shifts": [
@@ -4320,64 +4397,14 @@
       "sent": true,
       "sentAt": "2026-03-26T07:47:23.807Z",
       "submission": {
-        "items": [
-          {
-            "id": "crm-import-4a774854-8a27-f111-bb0b-00155d023200",
-            "type": "Biuro",
-            "subject": "Działania orgranizacyjne KP",
-            "client": "",
-            "kp": "Guz Artur",
-            "project": "AGU  działania indywidualne 2026",
-            "projectFullLabel": "AGU  działania indywidualne 2026",
-            "start": "08:00",
-            "end": "09:00",
-            "workKind": "Zwykłe",
-            "status": "Zakończone",
-            "locked": true,
-            "sent": false,
-            "prevSyncState": "DRAFT",
-            "crmActivityId": "4a774854-8a27-f111-bb0b-00155d023200",
-            "crmSyncedAt": "2026-03-24T14:30:28.900Z",
-            "crmClosePending": false,
-            "crmRegarding": {
-              "id": "399d3590-f8f5-f011-bb0b-00155d023200",
-              "logicalName": "opportunity",
-              "name": "AGU  działania indywidualne 2026",
-              "label": "AGU  działania indywidualne 2026"
-            }
-          },
-          {
-            "id": "crm-import-0b91fb49-8a27-f111-bb0b-00155d023200",
-            "type": "Biuro",
-            "subject": "Działania organizacyjne KP",
-            "client": "GRUPA STEINHOF SP. Z.O.O.",
-            "kp": "Basiaga Łukasz",
-            "project": "PR3694 - STEINHOF",
-            "projectFullLabel": "PR3694 - STEINHOF - Testy Robota XP15",
-            "start": "09:00",
-            "end": "12:00",
-            "workKind": "Zwykłe",
-            "status": "Zakończone",
-            "locked": true,
-            "sent": false,
-            "prevSyncState": "DRAFT",
-            "crmActivityId": "0b91fb49-8a27-f111-bb0b-00155d023200",
-            "crmSyncedAt": "2026-03-24T14:30:28.900Z",
-            "crmClosePending": false,
-            "crmRegarding": {
-              "id": "5e862a11-ab22-f111-bb0b-00155d023200",
-              "logicalName": "itarapro_project",
-              "name": "STEINHOF - Testy Robota XP15",
-              "label": "PR3694 - STEINHOF - Testy Robota XP15"
-            }
-          }
-        ],
+        "items": [],
         "status": "DRAFT",
         "submittedAt": null,
-        "reportedMinutes": 240,
+        "reportedMinutes": 0,
         "dayStatus": "W trakcie",
-        "updatedAt": "2026-03-24T14:30:28.901Z"
-      }
+        "updatedAt": "2026-03-26T12:32:00.140Z"
+      },
+      "travelRequest": null
     },
     {
       "id": "e1774348375722_2026-03-24",
@@ -4434,6 +4461,16 @@
           "type": "SENT",
           "at": "2026-03-26T07:47:23.807Z",
           "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T08:24:12.010Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Delegacja"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T12:35:02.516Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Delegacja → Biuro"
         }
       ],
       "shifts": [
@@ -4444,7 +4481,7 @@
         }
       ],
       "sent": true,
-      "sentAt": "2026-03-26T07:47:23.807Z",
+      "sentAt": "2026-03-26T12:35:02.516Z",
       "submission": {
         "items": [
           {
@@ -4467,7 +4504,8 @@
         "reportedMinutes": 480,
         "dayStatus": "W trakcie",
         "updatedAt": "2026-03-24T14:26:03.170Z"
-      }
+      },
+      "travelRequest": null
     },
     {
       "id": "e1774348375722_2026-03-26",
@@ -4524,40 +4562,41 @@
           "type": "SENT",
           "at": "2026-03-26T07:47:23.807Z",
           "text": "Kierownik: Auto (marzec 2026): 08:00–16:00 Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T08:16:19.389Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Biuro → Delegacja"
+        },
+        {
+          "type": "EMP_PLAN_MOD",
+          "at": "2026-03-26T11:26:55.647Z",
+          "text": "Pracownik: 05:00–20:00 Delegacja"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T12:34:32.297Z",
+          "text": "Pracownik: Zmieniono zakres 1: tryb Delegacja → Biuro"
         }
       ],
       "shifts": [
         {
           "mode": "OFFICE",
-          "start": "08:00",
-          "end": "16:00"
+          "start": "05:00",
+          "end": "20:00"
         }
       ],
       "sent": true,
-      "sentAt": "2026-03-26T07:47:23.807Z",
+      "sentAt": "2026-03-26T12:34:32.297Z",
       "submission": {
-        "items": [
-          {
-            "id": "plan-1774361806971-0",
-            "type": "Biuro",
-            "subject": "",
-            "client": "",
-            "project": "",
-            "start": "08:00",
-            "end": "16:00",
-            "workKind": "Zwykłe",
-            "status": "Planowane",
-            "locked": true,
-            "sent": false,
-            "prevSyncState": "DRAFT"
-          }
-        ],
+        "items": [],
         "status": "DRAFT",
         "submittedAt": null,
-        "reportedMinutes": 480,
+        "reportedMinutes": 0,
         "dayStatus": "W trakcie",
-        "updatedAt": "2026-03-24T14:16:46.971Z"
-      }
+        "updatedAt": "2026-03-26T12:39:44.550Z"
+      },
+      "travelRequest": null
     },
     {
       "id": "e1774348375722_2026-03-30",
@@ -5383,6 +5422,62 @@
       ],
       "sent": true,
       "sentAt": "2026-03-24T13:29:14.253Z"
+    },
+    {
+      "id": "e1774348375722_2026-02-26",
+      "employeeId": "e1774348375722",
+      "date": "2026-02-26",
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "note": "",
+      "sent": true,
+      "sentAt": "2026-03-26T12:41:23.354Z",
+      "logs": [
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T08:13:52.879Z",
+          "text": "Pracownik: Dodano zakres 1: —–— Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T12:41:23.354Z",
+          "text": "Pracownik: Zmieniono zakres 1: czas —–— → 08:00–16:00"
+        }
+      ],
+      "travelRequest": null
+    },
+    {
+      "id": "e1774348375722_2026-02-27",
+      "employeeId": "e1774348375722",
+      "date": "2026-02-27",
+      "shifts": [
+        {
+          "mode": "OFFICE",
+          "start": "08:00",
+          "end": "16:00"
+        }
+      ],
+      "note": "",
+      "sent": true,
+      "sentAt": "2026-03-26T12:41:35.203Z",
+      "logs": [
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T08:13:58.578Z",
+          "text": "Pracownik: Dodano zakres 1: —–— Biuro"
+        },
+        {
+          "type": "EMP_PLAN_EDIT",
+          "at": "2026-03-26T12:41:35.203Z",
+          "text": "Pracownik: Zmieniono zakres 1: czas —–— → 08:00–16:00"
+        }
+      ],
+      "travelRequest": null
     }
   ],
   "monthlyLogs": [

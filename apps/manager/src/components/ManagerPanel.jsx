@@ -16,6 +16,7 @@ import {
   Settings,
   Plug,
   Download,
+  Briefcase,
   Menu,
   Loader2,
   RotateCcw,
@@ -50,6 +51,10 @@ import {
   savePlan,
   patchPlan,
   fetchMonthlyLogs,
+  fetchCrmAbsencesForEmployee,
+  CRM_TRAVEL_STATUS,
+  updateCrmTravel,
+  deleteCrmTravel,
   createMonthlyLog,
   deleteMonthlyLog,
   deleteMonthlyLogsForEmployee,
@@ -108,6 +113,111 @@ const sanitizePlan = (plan) => {
 };
 
 const MotionDiv = motion.div;
+const FIELD =
+  'mt-1 w-full rounded-xl border-2 border-slate-300 bg-white px-3 py-2 min-w-0 disabled:bg-slate-100 disabled:text-slate-500';
+const getTravelStatusLabel = (travelRequest) => {
+  const statusValue = Number(travelRequest?.travelStatusValue);
+  if (statusValue === CRM_TRAVEL_STATUS.PASSED_TO_FA) return 'Przekazano FA';
+  if (statusValue === CRM_TRAVEL_STATUS.FILLED) return 'Wypełniona';
+  if (statusValue === CRM_TRAVEL_STATUS.ACCEPTED) return 'Zaakceptowana';
+  if (travelRequest?.toAccept) return 'Do akceptacji';
+  return 'W trakcie';
+};
+const getTravelStatusClass = (travelRequest) => {
+  const statusValue = Number(travelRequest?.travelStatusValue);
+  if (statusValue === CRM_TRAVEL_STATUS.PASSED_TO_FA) return 'border-violet-300 bg-violet-50 text-violet-700';
+  if (statusValue === CRM_TRAVEL_STATUS.FILLED) return 'border-amber-300 bg-amber-50 text-amber-700';
+  if (statusValue === CRM_TRAVEL_STATUS.ACCEPTED) return 'border-emerald-300 bg-emerald-50 text-emerald-700';
+  if (travelRequest?.toAccept) return 'border-sky-300 bg-sky-50 text-sky-700';
+  return 'border-slate-300 bg-slate-50 text-slate-700';
+};
+
+const getTripRouteLabel = (entry) => {
+  const from = String(entry?.from || '').trim();
+  const to = String(entry?.to || '').trim();
+  if (from || to) return [from, to].filter(Boolean).join(' - ');
+  return String(entry?.route || '').trim();
+};
+
+const normalizeTripEntry = (entry) => {
+  const normalized = { ...(entry || {}) };
+  const from = String(normalized.from || '').trim();
+  const to = String(normalized.to || '').trim();
+  if (from || to) return normalized;
+
+  const legacyRoute = String(normalized.route || '').trim();
+  if (!legacyRoute) return normalized;
+
+  const parts = legacyRoute.split(' - ').map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    normalized.from = parts.shift() || '';
+    normalized.to = parts.join(' - ');
+  }
+  return normalized;
+};
+
+const buildTravelTripTask = (entry, travelRequest, existingTask = null) => {
+  const route = getTripRouteLabel(entry);
+  const subject = route ? `DP - ${route}` : 'DP';
+  const crmActivityId = String(entry?.crmActivityId || '').trim();
+  const preservedState =
+    existingTask?._syncState ||
+    existingTask?.prevSyncState ||
+    (existingTask?.sent ? 'SENT' : 'DRAFT');
+
+  return {
+    id: existingTask?.id || `travel-task-${entry.id}`,
+    type: 'Przejazd',
+    subject,
+    client: '',
+    project: String(travelRequest?.regardingLabel || '').trim(),
+    projectFullLabel: String(travelRequest?.regardingFullLabel || travelRequest?.regardingLabel || '').trim(),
+    start: String(entry?.start || '').trim(),
+    end: String(entry?.end || '').trim(),
+    workKind: 'Przejazd',
+    status: crmActivityId ? 'Zakończone' : 'Planowane',
+    locked: true,
+    sent: true,
+    _syncState: preservedState,
+    prevSyncState: preservedState,
+    crmActivityId: crmActivityId || existingTask?.crmActivityId || null,
+    crmSyncedAt: crmActivityId ? existingTask?.crmSyncedAt || new Date().toISOString() : existingTask?.crmSyncedAt || null,
+    crmClosePending: false,
+    travelManaged: true,
+    travelTripId: entry.id
+  };
+};
+
+const mergeTravelTripTasks = (items = [], travelRequest = null) => {
+  const baseItems = Array.isArray(items) ? items : [];
+  const existingTravelTasks = new Map(
+    baseItems.filter((item) => item?.travelManaged && item?.travelTripId).map((item) => [item.travelTripId, item])
+  );
+  const existingCrmActivityIds = new Set(
+    baseItems
+      .map((item) => String(item?.crmActivityId || '').trim())
+      .filter(Boolean)
+  );
+  const nonTravelItems = baseItems.filter((item) => !item?.travelManaged);
+  const tripEntries = Array.isArray(travelRequest?.tripEntries) ? travelRequest.tripEntries.map(normalizeTripEntry) : [];
+  if (!tripEntries.length) {
+    return nonTravelItems.map((item) => ({ ...item }));
+  }
+
+  const mirroredTravelTasks = tripEntries
+    .filter((entry) => getTripRouteLabel(entry) && String(entry?.start || '').trim() && String(entry?.end || '').trim())
+    .filter((entry) => !existingCrmActivityIds.has(String(entry?.crmActivityId || '').trim()))
+    .map((entry) => buildTravelTripTask(entry, travelRequest, existingTravelTasks.get(entry.id)));
+
+  return [...nonTravelItems.map((item) => ({ ...item })), ...mirroredTravelTasks].sort(
+    (left, right) => toMinutes(left.start) - toMinutes(right.start)
+  );
+};
+
+const isMissingCrmTravelError = (error) => {
+  const message = String(error instanceof Error ? error.message : error || '').toLowerCase();
+  return message.includes('itaratrv_travel') && message.includes('does not exist');
+};
 
 const formatTimeLabel = (value) => {
   if (!value) return '—';
@@ -267,6 +377,172 @@ function Modal({ open, title, children, actions, onClose }) {
         <div>{children}</div>
         <div className="mt-4 flex justify-end gap-2">{actions}</div>
       </div>
+    </div>
+  );
+}
+
+function DelegationSummaryCard({ travelRequest, onAccept, onCloseToFA, onDelete, canAccept, canCloseToFA, accepting, deleting }) {
+  if (!travelRequest) return null;
+
+  const statusLabel = getTravelStatusLabel(travelRequest);
+  const actionLabel = canCloseToFA ? 'Przekaż do FA' : 'Akceptuj delegację';
+  const costFields = [
+    ['dietCost', 'Dieta'],
+    ['fuelCost', 'Paliwo'],
+    ['parkingCost', 'Parking'],
+    ['highwayCost', 'Autostrada'],
+    ['hotelCost', 'Hotel'],
+    ['transportCost', 'Transport'],
+    ['additionalCost', 'Inne'],
+    ['foodCost', 'Gastronomia'],
+    ['advanceCost', 'Zaliczka']
+  ];
+  const visibleCostFields = costFields.filter(([key]) => {
+    const value = travelRequest?.[key];
+    return value != null && String(value).trim() !== '';
+  });
+  const tripEntries = Array.isArray(travelRequest?.tripEntries) ? travelRequest.tripEntries.map(normalizeTripEntry) : [];
+
+  return (
+    <div className="mt-4 rounded-2xl border-2 border-indigo-200 bg-indigo-50/40 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-slate-800">
+            <CarFront className="h-4 w-4 text-indigo-600" />
+            <span className="font-semibold">Delegacja</span>
+          </div>
+          <div className="mt-1 text-sm text-slate-500">Delegacja wystawiona przez pracownika dla tego dnia</div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {travelRequest.crmTravelNumber ? (
+            <span className="inline-flex items-center rounded-full border border-indigo-300 bg-white px-3 py-1 text-xs font-medium text-indigo-700">
+              {travelRequest.crmTravelNumber}
+            </span>
+          ) : null}
+          <span
+            className={cls(
+              'inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium',
+              getTravelStatusClass(travelRequest)
+            )}
+          >
+            {statusLabel}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <label className="text-sm text-slate-700">
+          Projekt / Szansa
+          <input value={travelRequest.regardingLabel || ''} className={FIELD} disabled />
+        </label>
+        <label className="text-sm text-slate-700">
+          Klient
+          <input value={travelRequest.account?.name || ''} className={FIELD} disabled />
+        </label>
+        <label className="text-sm text-slate-700">
+          Data początkowa
+          <input value={travelRequest.startDate || ''} className={FIELD} disabled />
+        </label>
+        <label className="text-sm text-slate-700">
+          Data końcowa
+          <input value={travelRequest.endDate || ''} className={FIELD} disabled />
+        </label>
+        <label className="text-sm text-slate-700">
+          Samochód
+          <input value={travelRequest.vehicle?.name || ''} className={FIELD} disabled />
+        </label>
+        <label className="text-sm text-slate-700">
+          Miasto docelowe
+          <input value={travelRequest.destinationCity || ''} className={FIELD} disabled />
+        </label>
+        <label className="text-sm text-slate-700 lg:col-span-2">
+          Adres docelowy
+          <input value={travelRequest.destinationAddress || ''} className={FIELD} disabled />
+        </label>
+        <label className="text-sm text-slate-700 lg:col-span-2">
+          Cel delegacji
+          <input value={travelRequest.purpose || ''} className={FIELD} disabled />
+        </label>
+      </div>
+
+      {visibleCostFields.length > 0 && (
+        <div className="mt-4">
+          <div className="text-sm font-medium text-slate-700">Koszty</div>
+          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
+            {visibleCostFields.map(([key, label]) => (
+              <label key={key} className="text-sm text-slate-700">
+                {label}
+                <input value={travelRequest?.[key] ?? ''} className={FIELD} disabled />
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tripEntries.length > 0 && (
+        <div className="mt-4">
+          <div className="text-sm font-medium text-slate-700">Przejazdy</div>
+          <div className="mt-3 space-y-2">
+            {tripEntries.map((entry, index) => (
+              <div key={entry.id || index} className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 lg:grid-cols-4">
+                <label className="text-sm text-slate-700">
+                  Skąd
+                  <input value={entry.from || ''} className={FIELD} disabled />
+                </label>
+                <label className="text-sm text-slate-700">
+                  Dokąd
+                  <input value={entry.to || ''} className={FIELD} disabled />
+                </label>
+                <label className="text-sm text-slate-700">
+                  Start
+                  <input value={entry.start || ''} className={FIELD} disabled />
+                </label>
+                <label className="text-sm text-slate-700">
+                  Koniec
+                  <input value={entry.end || ''} className={FIELD} disabled />
+                </label>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(travelRequest.crmTravelId || onDelete) && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={onDelete}
+            className={BTN}
+            disabled={deleting}
+          >
+            {deleting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Usuwanie...
+              </>
+            ) : (
+              <>
+                <Trash2 className="w-4 h-4 text-rose-600" /> Usuń delegację
+              </>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={canCloseToFA ? onCloseToFA : onAccept}
+            disabled={(!canAccept && !canCloseToFA) || accepting}
+            className={BTN}
+          >
+            {accepting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Akceptowanie...
+              </>
+            ) : (
+              <>
+                <Send className="w-4 h-4 text-emerald-600" /> {actionLabel}
+              </>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -571,6 +847,12 @@ const [deletingManager, setDeletingManager] = useState(false);
   const [crmError, setCrmError] = useState('');
   const [crmConnected, setCrmConnected] = useState(false);
   const [crmUser, setCrmUser] = useState(null);
+  const [crmAbsencesOpen, setCrmAbsencesOpen] = useState(false);
+  const [crmAbsencesLoading, setCrmAbsencesLoading] = useState(false);
+  const [crmAbsencesError, setCrmAbsencesError] = useState('');
+  const [crmAbsences, setCrmAbsences] = useState([]);
+  const [acceptingTravel, setAcceptingTravel] = useState(false);
+  const [deletingTravel, setDeletingTravel] = useState(false);
   const fixedManagerProfile = !!managerProfile?.id;
 
 const selectedEmployeeId = selectedEmployee?.id;
@@ -620,6 +902,7 @@ const selectedEmployeeId = selectedEmployee?.id;
       } catch (err) {
         setCrmConnected(false);
         setCrmUser(null);
+        setCrmAbsences([]);
         if (err instanceof Error) {
           const details = typeof err.message === 'string' ? err.message : '';
           const isNetworkIssue = err.name === 'TypeError' || details.includes('Failed to fetch');
@@ -651,8 +934,12 @@ const selectedEmployeeId = selectedEmployee?.id;
     } finally {
       setActionsMenuOpen(false);
       setCrmModalOpen(false);
+      setCrmAbsencesOpen(false);
       setCrmConnected(false);
       setCrmUser(null);
+      setCrmAbsences([]);
+      setCrmAbsencesError('');
+      setCrmAbsencesLoading(false);
       setCrmLoading(false);
       setCrmError('');
       setCrmCredentials((prev) => ({ ...prev, password: '' }));
@@ -888,11 +1175,42 @@ const deletePlannedMonth = useCallback(
     setReportMonth(`${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, '0')}`);
   }, [monthCursor]);
 
+  const openCrmAbsences = useCallback(async () => {
+    setActionsMenuOpen(false);
+    setCrmAbsencesOpen(true);
+
+    if (!crmConnected) {
+      setCrmAbsences([]);
+      setCrmAbsencesError('Najpierw połącz się z CRM.');
+      return;
+    }
+    if (!selectedEmployee?.name) {
+      setCrmAbsences([]);
+      setCrmAbsencesError('Nie wybrano pracownika.');
+      return;
+    }
+
+    setCrmAbsencesLoading(true);
+    setCrmAbsencesError('');
+    try {
+      const items = await fetchCrmAbsencesForEmployee({
+        ownerName: selectedEmployee.name,
+        crmScope: CRM_SESSION_SCOPE
+      });
+      setCrmAbsences(items);
+    } catch (err) {
+      setCrmAbsences([]);
+      setCrmAbsencesError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCrmAbsencesLoading(false);
+    }
+  }, [crmConnected, selectedEmployee?.name]);
+
   const sentDay = selectedEmployee ? plansByDate[dKey] || null : null;
 const createDraft = (plan) =>
   plan
     ? { ...plan, dirty: false }
-    : { id: null, shifts: [], note: '', dirty: false };
+    : { id: null, shifts: [], note: '', travelRequest: null, dirty: false };
 
 const [draftDay, setDraftDay] = useState(createDraft(sentDay));
   useEffect(() => {
@@ -923,6 +1241,44 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
   }, [actionsMenuOpen]);
 
   const shifts = draftDay.shifts || [];
+  const persistPlanWithTravel = useCallback(
+    async (travelRequest) => {
+      if (!selectedEmployeeId) return null;
+      const planId = sentDay?.id || planIdFor(selectedEmployeeId, dKey);
+      const base = sentDay
+        ? sanitizePlan(sentDay)
+        : {
+            id: planId,
+            employeeId: selectedEmployeeId,
+            date: dKey,
+            shifts: [],
+            note: '',
+            sent: false,
+            sentAt: null,
+            logs: []
+          };
+
+      const payload = {
+        ...base,
+        id: planId,
+        employeeId: selectedEmployeeId,
+        date: dKey,
+        shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
+        note: draftDay.note || '',
+        travelRequest: travelRequest || null,
+        ...(base.submission ? { submission: { ...base.submission } } : {})
+      };
+
+      const saved = await savePlan(payload);
+      setPlansByDate((prev) => {
+        const current = prev[dKey];
+        if (current && deepEqual(current, saved)) return prev;
+        return { ...prev, [dKey]: saved };
+      });
+      return saved;
+    },
+    [selectedEmployeeId, sentDay, dKey, draftDay.shifts, draftDay.note]
+  );
   const canSendPlan = shifts.length > 0;
   const submissionShifts = sentDay?.shifts?.length ? sentDay.shifts : shifts;
   const plannedMinutes = shifts.reduce((acc, shift) => acc + (toMinutes(shift.end) - toMinutes(shift.start)), 0);
@@ -936,6 +1292,161 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
   const planSpan = useMemo(() => getPlanSpanMins(shifts), [shifts]);
   const submissionSpan = useMemo(() => getPlanSpanMins(submissionShifts), [submissionShifts]);
   const dayStatus = draftDay.dirty ? 'EDITED' : sentDay ? 'SENT' : 'NONE';
+
+  const acceptTravel = useCallback(async () => {
+    const currentTravel = draftDay.travelRequest;
+    if (!currentTravel?.crmTravelId) return;
+    if (!crmConnected) {
+      setError('Najpierw połącz panel kierownika z CRM.');
+      return;
+    }
+
+    setAcceptingTravel(true);
+    setError(null);
+    try {
+      const payload = {
+        ...currentTravel,
+        toAccept: false,
+        travelStatusValue: CRM_TRAVEL_STATUS.ACCEPTED
+      };
+      await updateCrmTravel({
+        travelId: currentTravel.crmTravelId,
+        travel: payload,
+        crmScope: CRM_SESSION_SCOPE
+      });
+
+      const nextTravel = {
+        ...payload,
+        crmAcceptedAt: new Date().toISOString()
+      };
+
+      const saved = await persistPlanWithTravel(nextTravel);
+      const nextDraft = {
+        ...(saved || draftDay),
+        travelRequest: nextTravel,
+        dirty: false
+      };
+      setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAcceptingTravel(false);
+    }
+  }, [crmConnected, draftDay, persistPlanWithTravel]);
+
+  const closeTravelToFA = useCallback(async () => {
+    const currentTravel = draftDay.travelRequest;
+    if (!currentTravel?.crmTravelId) return;
+    if (!crmConnected) {
+      setError('Najpierw połącz panel kierownika z CRM.');
+      return;
+    }
+
+    setAcceptingTravel(true);
+    setError(null);
+    try {
+      const payload = {
+        ...currentTravel,
+        toAccept: false,
+        travelStatusValue: CRM_TRAVEL_STATUS.PASSED_TO_FA
+      };
+      await updateCrmTravel({
+        travelId: currentTravel.crmTravelId,
+        travel: payload,
+        crmScope: CRM_SESSION_SCOPE
+      });
+
+      const nextTravel = {
+        ...payload,
+        crmClosedAt: new Date().toISOString()
+      };
+
+      const saved = await persistPlanWithTravel(nextTravel);
+      const nextDraft = {
+        ...(saved || draftDay),
+        travelRequest: nextTravel,
+        dirty: false
+      };
+      setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAcceptingTravel(false);
+    }
+  }, [crmConnected, draftDay, persistPlanWithTravel]);
+
+  const deleteTravelRequest = useCallback(async () => {
+    const currentTravel = draftDay.travelRequest;
+    if (!currentTravel) return;
+
+    setDeletingTravel(true);
+    setError(null);
+    try {
+      const crmTravelId = String(currentTravel.crmTravelId || '').trim();
+      if (crmTravelId) {
+        try {
+          await deleteCrmTravel(crmTravelId, null, CRM_SESSION_SCOPE);
+        } catch (err) {
+          if (!isMissingCrmTravelError(err)) {
+            throw err;
+          }
+        }
+      }
+
+      if (!selectedEmployeeId) {
+        setDraftDay((prev) => ({ ...prev, travelRequest: null, dirty: false }));
+        return;
+      }
+
+      const planId = sentDay?.id || planIdFor(selectedEmployeeId, dKey);
+      const base = sentDay
+        ? sanitizePlan(sentDay)
+        : {
+            id: planId,
+            employeeId: selectedEmployeeId,
+            date: dKey,
+            shifts: [],
+            note: '',
+            sent: false,
+            sentAt: null,
+            logs: []
+          };
+
+      const nextSubmission = base.submission
+        ? {
+            ...base.submission,
+            items: (base.submission.items || []).filter((item) => !item?.travelManaged)
+          }
+        : undefined;
+
+      const payload = {
+        ...base,
+        id: planId,
+        employeeId: selectedEmployeeId,
+        date: dKey,
+        shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
+        note: draftDay.note || '',
+        travelRequest: null,
+        ...(nextSubmission ? { submission: nextSubmission } : {})
+      };
+
+      const saved = await savePlan(payload);
+      setPlansByDate((prev) => {
+        const current = prev[dKey];
+        if (current && deepEqual(current, saved)) return prev;
+        return { ...prev, [dKey]: saved };
+      });
+      setDraftDay((prev) => ({
+        ...(saved || prev),
+        travelRequest: null,
+        dirty: false
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeletingTravel(false);
+    }
+  }, [dKey, draftDay.note, draftDay.shifts, draftDay.travelRequest, selectedEmployeeId, sentDay]);
 
   const addSegment = () =>
     setDraftDay((prev) => {
@@ -1002,6 +1513,7 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
           date: dKey,
           shifts: [],
           note: '',
+          travelRequest: draftDay.travelRequest || null,
           sent: false,
           sentAt: null,
           logs: []
@@ -1014,6 +1526,7 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
       date: dKey,
       shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
       note: draftDay.note || '',
+      travelRequest: draftDay.travelRequest || null,
       sent: true,
       sentAt: now
     };
@@ -1098,33 +1611,45 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
     () => (sentSubmission?.items || []).filter((item) => item.sent !== false),
     [sentSubmission?.items]
   );
+  const submissionItemsWithTravel = useMemo(
+    () => mergeTravelTripTasks(submissionItemsVisible, draftDay.travelRequest),
+    [submissionItemsVisible, draftDay.travelRequest]
+  );
   const submissionItemsForDisplay = useMemo(
     () =>
       splitTasksByPlanStart(
-        submissionItemsVisible,
+        submissionItemsWithTravel,
         submissionSpan,
         selectedDate,
         submissionShifts
       ),
     [
-      submissionItemsVisible,
+      submissionItemsWithTravel,
       submissionSpan?.start,
       submissionSpan?.end,
       selectedDate,
       submissionShifts
     ]
   );
+  const reportedTravelMinutes = submissionItemsVisible
+    .filter((item) => item.type === 'Przejazd' && item.start && item.end)
+    .reduce((acc, item) => acc + (toMinutes(item.end) - toMinutes(item.start)), 0);
+  const reportedWorkMinutesCalc = submissionItemsVisible
+    .filter((item) => item.type !== 'Przejazd' && item.start && item.end)
+    .reduce((acc, item) => acc + (toMinutes(item.end) - toMinutes(item.start)), 0);
   const reportedMinutesCalc = submissionItemsVisible
     .filter((item) => item.start && item.end)
     .reduce((acc, item) => acc + (toMinutes(item.end) - toMinutes(item.start)), 0);
-  const reportedWithinPlan = Math.min(reportedMinutesCalc, plannedMinutes);
-  const reportedOvertime = Math.max(reportedMinutesCalc - reportedWithinPlan, 0);
+  const reportedWithinPlan = Math.min(reportedWorkMinutesCalc, plannedMinutes);
+  const reportedOvertime = Math.max(reportedWorkMinutesCalc - reportedWithinPlan, 0);
   const reportedPlanLabel =
     plannedMinutes > 0
       ? `${formatCompactDuration(reportedWithinPlan)} Planowo`
       : formatCompactDuration(reportedWithinPlan);
   const reportedOvertimeLabel =
     reportedOvertime > 0 ? `${formatCompactDuration(reportedOvertime)} nadgodzin` : null;
+  const reportedTravelLabel =
+    reportedTravelMinutes > 0 ? `${formatCompactDuration(reportedTravelMinutes)} godzin przejazdowych` : null;
   const allDoneCalc = submissionItemsVisible.length > 0 && submissionItemsVisible.every((item) =>
     String(item.status || '').toLowerCase().includes('zako')
   );
@@ -1650,6 +2175,14 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
                 </button>
                 <button
                   type="button"
+                  onClick={openCrmAbsences}
+                  disabled={!crmConnected}
+                  className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-slate-50 disabled:text-slate-400 disabled:hover:bg-transparent"
+                >
+                  <Briefcase className="w-4 h-4" /> Urlopy
+                </button>
+                <button
+                  type="button"
                   onClick={handleCrmLogout}
                   disabled={!crmConnected}
                   className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-600 hover:bg-rose-50 disabled:text-slate-400 disabled:hover:bg-transparent"
@@ -1743,72 +2276,146 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
         </aside>
 
       <section className={CARD}>
-        <div className="mb-3 flex items-center justify-between">
-          <div className="font-medium">
-            Plan dnia – <span className="text-slate-600">{selectedEmployee?.name ?? '—'}</span>
-          </div>
-          {dayStatus !== 'NONE' && (
-            <span
-              className={cls(
-                CHIP,
-                dayStatus === 'SENT'
-                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
-                  : 'bg-violet-50 border-violet-300 text-violet-700'
-              )}
-            >
-              {dayStatus === 'SENT' ? 'Wysłane' : 'Edytowane'}
-            </span>
-          )}
-        </div>
-        <div className="text-sm text-slate-500 mb-2 flex items-center gap-2">
-          <CalendarDays className="w-4 h-4" />
-          {selectedDate.toLocaleDateString('pl-PL', {
-            weekday: 'long',
-            day: '2-digit',
-            month: 'long',
-            year: 'numeric'
-          })}
-        </div>
-
-        {managerPlanCollapsed ? (
-          <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-4 space-y-3">
-            {shifts.length > 0 ? (
-              <>
-                <ul className="space-y-2 text-sm">
-                  {shifts.map((segment, idx) => {
-                    const meta = MODE_META[segment.mode || 'OFFICE'];
-                    const hasTimes = segment.start && segment.end;
-                    const timeLabel = hasTimes ? `${segment.start} - ${segment.end}` : '—';
-                    const note = segment.note ? ` - ${segment.note}` : '';
-                    return (
-                      <li key={idx} className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex-1 text-sm text-slate-600">
-                          <span className="text-base font-semibold text-slate-700">{timeLabel}</span>
-                          {note && <span className="text-sm text-slate-500">{note}</span>}
+        {crmAbsencesOpen ? (
+          <>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="font-medium">
+                Urlopy i nieobecności – <span className="text-slate-600">{selectedEmployee?.name ?? '—'}</span>
+              </div>
+              <button onClick={() => setCrmAbsencesOpen(false)} className={BTN}>
+                Zamknij
+              </button>
+            </div>
+            <div className="text-sm text-slate-500 mb-3 flex items-center gap-2">
+              <Briefcase className="w-4 h-4" /> Dane pobrane z CRM dla wybranego pracownika
+            </div>
+            {crmAbsencesError && (
+              <div className="mb-3 rounded-xl border-2 border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{crmAbsencesError}</div>
+            )}
+            {crmAbsencesLoading ? (
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                <Loader2 className="w-4 h-4 animate-spin" /> Pobieram urlopy z CRM...
+              </div>
+            ) : crmAbsences.length === 0 ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                Brak urlopów lub nieobecności w CRM dla wybranego pracownika.
+              </div>
+            ) : (
+              <div className="max-h-[32rem] overflow-y-auto rounded-xl border border-slate-200">
+                <div className="divide-y divide-slate-200">
+                  {crmAbsences.map((item) => (
+                    <div key={item.id} className="px-3 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-medium text-slate-800">{item.reasonLabel || 'Nieobecność'}</div>
+                          <div className="mt-1 text-sm text-slate-600">
+                            {item.from || '—'}
+                            {item.until && item.until !== item.from ? ` – ${item.until}` : ''}
+                          </div>
                         </div>
                         <span
                           className={cls(
-                            CHIP,
-                            meta?.base,
-                            meta?.border,
-                            meta?.text
+                            'inline-flex items-center rounded-full border px-2.5 py-1 text-xs whitespace-nowrap',
+                            item.stateCode === 0
+                              ? 'border-amber-300 bg-amber-50 text-amber-700'
+                              : 'border-emerald-300 bg-emerald-50 text-emerald-700'
                           )}
                         >
-                          <span className={cls('inline-block h-2 w-2 rounded-full', meta?.dot)} /> {meta?.label || '—'}
+                          {item.statusLabel}
                         </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-                <div className="text-sm text-slate-500">
-                  Łącznie: <span className="text-base font-semibold text-slate-700">{minutesToHHmm(plannedMinutes)}</span>
+                      </div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        {item.days ? `${item.days} dni` : '—'}
+                        {item.description ? ` • ${item.description}` : ''}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </>
-            ) : (
-              <div className="text-sm text-slate-500">Brak zakresów czasu.</div>
+              </div>
             )}
-          </div>
+          </>
         ) : (
+          <>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="font-medium">
+                Plan dnia – <span className="text-slate-600">{selectedEmployee?.name ?? '—'}</span>
+              </div>
+              {dayStatus !== 'NONE' && (
+                <span
+                  className={cls(
+                    CHIP,
+                    dayStatus === 'SENT'
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                      : 'bg-violet-50 border-violet-300 text-violet-700'
+                  )}
+                >
+                  {dayStatus === 'SENT' ? 'Wysłane' : 'Edytowane'}
+                </span>
+              )}
+            </div>
+            <div className="text-sm text-slate-500 mb-2 flex items-center gap-2">
+              <CalendarDays className="w-4 h-4" />
+              {selectedDate.toLocaleDateString('pl-PL', {
+                weekday: 'long',
+                day: '2-digit',
+                month: 'long',
+                year: 'numeric'
+              })}
+            </div>
+
+            {managerPlanCollapsed ? (
+          <>
+            <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-4 space-y-3">
+              {shifts.length > 0 ? (
+                <>
+                  <ul className="space-y-2 text-sm">
+                    {shifts.map((segment, idx) => {
+                      const meta = MODE_META[segment.mode || 'OFFICE'];
+                      const hasTimes = segment.start && segment.end;
+                      const timeLabel = hasTimes ? `${segment.start} - ${segment.end}` : '—';
+                      const note = segment.note ? ` - ${segment.note}` : '';
+                      return (
+                        <li key={idx} className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex-1 text-sm text-slate-600">
+                            <span className="text-base font-semibold text-slate-700">{timeLabel}</span>
+                            {note && <span className="text-sm text-slate-500">{note}</span>}
+                          </div>
+                          <span
+                            className={cls(
+                              CHIP,
+                              meta?.base,
+                              meta?.border,
+                              meta?.text
+                            )}
+                          >
+                            <span className={cls('inline-block h-2 w-2 rounded-full', meta?.dot)} /> {meta?.label || '—'}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <div className="text-sm text-slate-500">
+                    Łącznie: <span className="text-base font-semibold text-slate-700">{minutesToHHmm(plannedMinutes)}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="text-sm text-slate-500">Brak zakresów czasu.</div>
+              )}
+            </div>
+            {draftDay.travelRequest && (
+              <DelegationSummaryCard
+                travelRequest={draftDay.travelRequest}
+                onAccept={acceptTravel}
+                onCloseToFA={closeTravelToFA}
+                onDelete={deleteTravelRequest}
+                canAccept={crmConnected && !!draftDay.travelRequest?.toAccept}
+                canCloseToFA={crmConnected && Number(draftDay.travelRequest?.travelStatusValue) === CRM_TRAVEL_STATUS.FILLED}
+                accepting={acceptingTravel}
+                deleting={deletingTravel}
+              />
+            )}
+          </>
+            ) : (
           <>
             <div className="space-y-3">
               {shifts.length === 0 && (
@@ -1896,6 +2503,19 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
               </div>
             </div>
 
+            {draftDay.travelRequest && (
+              <DelegationSummaryCard
+                travelRequest={draftDay.travelRequest}
+                onAccept={acceptTravel}
+                onCloseToFA={closeTravelToFA}
+                onDelete={deleteTravelRequest}
+                canAccept={crmConnected && !!draftDay.travelRequest?.toAccept}
+                canCloseToFA={crmConnected && Number(draftDay.travelRequest?.travelStatusValue) === CRM_TRAVEL_STATUS.FILLED}
+                accepting={acceptingTravel}
+                deleting={deletingTravel}
+              />
+            )}
+
             {(sentDay || monthlyLogsSel.length > 0) && (
               <div className="mt-4 rounded-xl border-2 border-slate-300 bg-slate-50 p-3">
                 <div className="text-sm font-medium mb-2 flex items-center justify-between">
@@ -1965,17 +2585,19 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
               </div>
             )}
           </>
-        )}
+            )}
 
-        <div className="mt-4 flex justify-center">
-          <button
-            onClick={() => setManagerPlanCollapsed((prev) => !prev)}
-            className="rounded-full border-2 border-slate-300 p-1.5 hover:bg-slate-50 transition-colors"
-            aria-label={managerPlanCollapsed ? 'Rozwiń plan' : 'Zwiń plan'}
-          >
-            <ChevronDown className={cls('w-4 h-4 transition-transform', !managerPlanCollapsed && 'rotate-180')} />
-          </button>
-        </div>
+            <div className="mt-4 flex justify-center">
+              <button
+                onClick={() => setManagerPlanCollapsed((prev) => !prev)}
+                className="rounded-full border-2 border-slate-300 p-1.5 hover:bg-slate-50 transition-colors"
+                aria-label={managerPlanCollapsed ? 'Rozwiń plan' : 'Zwiń plan'}
+              >
+                <ChevronDown className={cls('w-4 h-4 transition-transform', !managerPlanCollapsed && 'rotate-180')} />
+              </button>
+            </div>
+          </>
+        )}
       </section>
 
         {calendarOpen && (
@@ -2043,6 +2665,12 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
                   <>
                     {' + '}
                     <span className="text-rose-600 font-semibold">{reportedOvertimeLabel}</span>
+                  </>
+                ) : null}
+                {reportedTravelLabel ? (
+                  <>
+                    {' + '}
+                    <span className="font-semibold text-violet-600">{reportedTravelLabel}</span>
                   </>
                 ) : null}
               </span>

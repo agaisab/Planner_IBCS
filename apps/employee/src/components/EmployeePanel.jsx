@@ -21,9 +21,12 @@ import {
   Loader2,
   Check,
   Edit3,
+  Briefcase,
   Plug,
   LogOut,
-  CarFront
+  CarFront,
+  ArrowRight,
+  ArrowLeft
 } from 'lucide-react';
 import {
   cls,
@@ -54,11 +57,19 @@ import {
   useManagersAndEmployees,
   savePlan,
   fetchCrmProjects,
+  fetchCrmVehicles,
+  fetchCrmAbsencesForEmployee,
   fetchCrmTasksForDate,
   createCrmTaskActivity,
+  createCrmAppointmentActivity,
+  createCrmTravel,
+  CRM_TRAVEL_STATUS,
   updateCrmTaskActivity,
+  updateCrmTravel,
+  closeCrmAppointmentActivity,
   closeCrmTaskActivity,
   deleteCrmTaskActivity,
+  deleteCrmTravel,
   isPublicHoliday
 } from '@planner/shared';
 import Logo from '../assets/ibcs-logo.png';
@@ -75,6 +86,156 @@ const CRM_PROXY_URL =
 const CRM_FIXED_DOMAIN = import.meta.env?.VITE_CRM_DOMAIN || 'bcspol';
 const CRM_SESSION_SCOPE = 'employee-panel';
 const EMPLOYEE_PLAN_CACHE_PREFIX = 'planner_employee_plans_cache:';
+const FIELD =
+  'mt-1 w-full rounded-xl border-2 border-slate-300 bg-white px-3 py-2 min-w-0 disabled:bg-slate-100 disabled:text-slate-500';
+const getTravelStatusLabel = (travelRequest) => {
+  const statusValue = Number(travelRequest?.travelStatusValue);
+  if (statusValue === CRM_TRAVEL_STATUS.PASSED_TO_FA) return 'Przekazano FA';
+  if (statusValue === CRM_TRAVEL_STATUS.FILLED) return 'Wypełniona';
+  if (statusValue === CRM_TRAVEL_STATUS.ACCEPTED) return 'Zaakceptowana';
+  if (travelRequest?.toAccept) return 'Do akceptacji';
+  return 'W trakcie';
+};
+const getTravelStatusClass = (travelRequest) => {
+  const statusValue = Number(travelRequest?.travelStatusValue);
+  if (statusValue === CRM_TRAVEL_STATUS.PASSED_TO_FA) return 'border-violet-300 bg-violet-50 text-violet-700';
+  if (statusValue === CRM_TRAVEL_STATUS.FILLED) return 'border-amber-300 bg-amber-50 text-amber-700';
+  if (statusValue === CRM_TRAVEL_STATUS.ACCEPTED) return 'border-emerald-300 bg-emerald-50 text-emerald-700';
+  if (travelRequest?.toAccept) return 'border-sky-300 bg-sky-50 text-sky-700';
+  return 'border-slate-300 bg-slate-50 text-slate-700';
+};
+
+const getTripRouteLabel = (entry) => {
+  const from = String(entry?.from || '').trim();
+  const to = String(entry?.to || '').trim();
+  if (from || to) return [from, to].filter(Boolean).join(' - ');
+  return String(entry?.route || '').trim();
+};
+
+const normalizeTripEntry = (entry) => {
+  const normalized = { ...(entry || {}) };
+  const from = String(normalized.from || '').trim();
+  const to = String(normalized.to || '').trim();
+  if (from || to) return normalized;
+
+  const legacyRoute = String(normalized.route || '').trim();
+  if (!legacyRoute) return normalized;
+
+  const parts = legacyRoute.split(' - ').map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    normalized.from = parts.shift() || '';
+    normalized.to = parts.join(' - ');
+  }
+  return normalized;
+};
+
+const buildTravelTripTask = (entry, travelRequest, existingTask = null) => {
+  const route = getTripRouteLabel(entry);
+  const subject = route ? `DP - ${route}` : 'DP';
+  const crmActivityId = String(entry?.crmActivityId || '').trim();
+  const preservedState =
+    existingTask?._syncState ||
+    existingTask?.prevSyncState ||
+    (existingTask?.sent ? 'SENT' : 'DRAFT');
+
+  return {
+    id: existingTask?.id || `travel-task-${entry.id}`,
+    type: 'Przejazd',
+    subject,
+    client: '',
+    project: String(travelRequest?.regardingLabel || '').trim(),
+    projectFullLabel: String(travelRequest?.regardingFullLabel || travelRequest?.regardingLabel || '').trim(),
+    start: String(entry?.start || '').trim(),
+    end: String(entry?.end || '').trim(),
+    workKind: 'Przejazd',
+    status: crmActivityId ? 'Zakończone' : 'Planowane',
+    locked: true,
+    sent: !!existingTask?.sent,
+    _syncState: preservedState,
+    prevSyncState: preservedState,
+    crmActivityId: crmActivityId || existingTask?.crmActivityId || null,
+    crmSyncedAt: crmActivityId ? existingTask?.crmSyncedAt || new Date().toISOString() : existingTask?.crmSyncedAt || null,
+    crmClosePending: false,
+    crmRegarding:
+      travelRequest?.regarding?.id && travelRequest?.regarding?.logicalName
+        ? {
+            id: String(travelRequest.regarding.id).trim(),
+            logicalName: String(travelRequest.regarding.logicalName).trim(),
+            name: String(travelRequest.regarding.name || '').trim(),
+            label: String(travelRequest?.regardingLabel || '').trim()
+          }
+        : null,
+    travelManaged: true,
+    travelTripId: entry.id
+  };
+};
+
+const mergeTravelTripTasks = (items = [], travelRequest = null) => {
+  const baseItems = Array.isArray(items) ? items : [];
+  const existingTravelTasks = new Map(
+    baseItems.filter((item) => item?.travelManaged && item?.travelTripId).map((item) => [item.travelTripId, item])
+  );
+  const existingCrmActivityIds = new Set(
+    baseItems
+      .map((item) => String(item?.crmActivityId || '').trim())
+      .filter(Boolean)
+  );
+  const nonTravelItems = baseItems.filter((item) => !item?.travelManaged);
+  const tripEntries = Array.isArray(travelRequest?.tripEntries) ? travelRequest.tripEntries : [];
+  if (!tripEntries.length) {
+    return sortTasksByTime(nonTravelItems.map((item) => ({ ...item })));
+  }
+
+  const mirroredTravelTasks = tripEntries
+    .filter((entry) => getTripRouteLabel(entry) && String(entry?.start || '').trim() && String(entry?.end || '').trim())
+    .filter((entry) => !existingCrmActivityIds.has(String(entry?.crmActivityId || '').trim()))
+    .map((entry) => buildTravelTripTask(entry, travelRequest, existingTravelTasks.get(entry.id)));
+
+  return sortTasksByTime([...nonTravelItems.map((item) => ({ ...item })), ...mirroredTravelTasks]);
+};
+
+const getPersistedTravelRequest = (travelRequest) => {
+  const crmTravelId = String(travelRequest?.crmTravelId || '').trim();
+  return crmTravelId ? travelRequest || null : null;
+};
+
+const COMMON_CITY_SUGGESTIONS = [
+  'Białystok',
+  'Bielsko-Biała',
+  'Bydgoszcz',
+  'Częstochowa',
+  'Gdańsk',
+  'Gdynia',
+  'Gliwice',
+  'Katowice',
+  'Kielce',
+  'Koszalin',
+  'Kraków',
+  'Kwidzyn',
+  'Legnica',
+  'Lublin',
+  'Łódź',
+  'Nowy Sącz',
+  'Olsztyn',
+  'Opole',
+  'Piotrków Trybunalski',
+  'Poznań',
+  'Radom',
+  'Rzeszów',
+  'Sosnowiec',
+  'Szczecin',
+  'Toruń',
+  'Warszawa',
+  'Wrocław',
+  'Zielona Góra'
+];
+
+const DEFAULT_TRAVEL_HOME_CITY = 'Nowy Sącz';
+
+const isMissingCrmTravelError = (error) => {
+  const message = String(error instanceof Error ? error.message : error || '').toLowerCase();
+  return message.includes('itaratrv_travel') && message.includes('does not exist');
+};
 
 const readPlanCache = (prefix, key) => {
   if (typeof window === 'undefined' || !key) return null;
@@ -131,6 +292,25 @@ const normalizeTaskStates = (items, defaultState = 'EDITED') =>
       prevSyncState: baseState
     };
   });
+
+const isTaskEffectivelyEmpty = (task) => {
+  if (!task || task.travelManaged) return false;
+  const subject = String(task.subject || '').trim();
+  const project = String(task.project || '').trim();
+  const client = String(task.client || '').trim();
+  const crmActivityId = String(task.crmActivityId || '').trim();
+  const hasContent = subject || project || client || crmActivityId;
+  return !hasContent;
+};
+
+const shouldHideEmptyTaskDraft = (task) => {
+  if (!isTaskEffectivelyEmpty(task)) return false;
+  const syncState = String(task?._syncState || task?.prevSyncState || '').trim();
+  return syncState !== 'EDITED';
+};
+
+const pruneEmptyTaskDrafts = (items = []) =>
+  (items || []).filter((task) => !isTaskEffectivelyEmpty(task));
 
 const mergeSubmissionItems = (previous = [], incoming = []) => {
   const mergedMap = new Map();
@@ -932,6 +1112,618 @@ function CrmProjectSelect({ value, fullValue, onChange, onSelectOption, options,
   );
 }
 
+function SearchableOptionSelect({
+  value,
+  onChange,
+  onSelectOption,
+  options,
+  disabled,
+  loading,
+  placeholder = 'Wybierz...'
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [highlightIndex, setHighlightIndex] = useState(-1);
+  const containerRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const [panelRect, setPanelRect] = useState(null);
+  const safeOptions = useMemo(() => (Array.isArray(options) ? options : []), [options]);
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return safeOptions;
+    return safeOptions.filter((item) => String(item.label || '').toLowerCase().includes(term));
+  }, [safeOptions, search]);
+
+  const updatePanelPosition = useCallback(() => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    setPanelRect({
+      top: rect.bottom + 6,
+      left: rect.left,
+      width: rect.width
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    updatePanelPosition();
+    const handleScroll = () => updatePanelPosition();
+    const handleResize = () => updatePanelPosition();
+    const handleClick = (event) => {
+      if (event.target.closest('[data-searchable-option-menu]')) return;
+      if (containerRef.current && containerRef.current.contains(event.target)) return;
+      setOpen(false);
+    };
+    window.addEventListener('mousedown', handleClick);
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('resize', handleResize);
+    const focusTimer = setTimeout(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }, 0);
+    return () => {
+      clearTimeout(focusTimer);
+      window.removeEventListener('mousedown', handleClick);
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [open, updatePanelPosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    setSearch(value || '');
+  }, [open, value]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!filtered.length) {
+      setHighlightIndex(-1);
+      return;
+    }
+    const currentIndex = filtered.findIndex((item) => item.label === value);
+    setHighlightIndex(currentIndex >= 0 ? currentIndex : 0);
+  }, [filtered, open, value]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  const handleSelect = useCallback(
+    (option) => {
+      if (!option) return;
+      onChange(option.label || '');
+      onSelectOption?.(option);
+      setSearch(option.label || '');
+      setOpen(false);
+    },
+    [onChange, onSelectOption]
+  );
+
+  const handleKeyDown = useCallback(
+    (event) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        if (!open) {
+          setOpen(true);
+          return;
+        }
+        setHighlightIndex((prev) => Math.min((prev < 0 ? -1 : prev) + 1, filtered.length - 1));
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (!open) {
+          setOpen(true);
+          return;
+        }
+        setHighlightIndex((prev) => (prev <= 0 ? 0 : prev - 1));
+      } else if (event.key === 'Enter') {
+        if (!open) return;
+        event.preventDefault();
+        const option = highlightIndex >= 0 ? filtered[highlightIndex] : filtered[0];
+        if (option) handleSelect(option);
+      } else if (event.key === 'Escape') {
+        if (open) {
+          event.preventDefault();
+          setOpen(false);
+        }
+      }
+    },
+    [filtered, handleSelect, highlightIndex, open]
+  );
+
+  const dropdownWidth = panelRect?.width || 320;
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <input
+        value={open ? search : value || ''}
+        onChange={(event) => {
+          setSearch(event.target.value);
+          if (!open) setOpen(true);
+          onChange(event.target.value);
+        }}
+        onFocus={() => !disabled && setOpen(true)}
+        onKeyDown={handleKeyDown}
+        className={cls('w-full rounded-lg border-2 border-slate-300 px-3 py-2 pr-9', disabled && 'bg-slate-100 text-slate-500')}
+        placeholder={placeholder}
+        disabled={disabled}
+        autoComplete="off"
+      />
+      <button
+        type="button"
+        onClick={() => !disabled && setOpen((prev) => !prev)}
+        className={cls(
+          'absolute inset-y-0 right-1 flex items-center rounded-md px-2 text-slate-500 transition hover:text-slate-700 focus:outline-none',
+          disabled && 'pointer-events-none text-slate-300'
+        )}
+        aria-label="Lista opcji"
+      >
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronDown className={cls('h-4 w-4 transition-transform', open && 'rotate-180')} />}
+      </button>
+      {open && panelRect &&
+        createPortal(
+          <div
+            data-searchable-option-menu
+            className="z-50 rounded-2xl border border-slate-200 bg-white shadow-2xl text-sm"
+            style={{
+              position: 'fixed',
+              top: panelRect.top,
+              left: panelRect.left,
+              width: dropdownWidth,
+              maxWidth: dropdownWidth,
+              transform: 'translateY(calc(-100% - 8px))'
+            }}
+          >
+            <div className="border-b border-slate-200 p-2">
+              <input
+                ref={searchInputRef}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={handleKeyDown}
+                className="w-full rounded-lg border border-slate-200 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                placeholder="Szukaj..."
+              />
+            </div>
+            <div className="max-h-72 overflow-y-auto">
+              {loading ? (
+                <div className="flex items-center justify-center gap-2 px-3 py-4 text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Ładowanie...
+                </div>
+              ) : filtered.length === 0 ? (
+                <div className="px-3 py-4 text-slate-500">Brak wyników.</div>
+              ) : (
+                filtered.map((item, index) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      handleSelect(item);
+                    }}
+                    onMouseEnter={() => setHighlightIndex(index)}
+                    className={cls(
+                      'w-full px-3 py-2 text-left hover:bg-slate-50',
+                      item.label === value && 'bg-sky-50 text-sky-700',
+                      index === highlightIndex && 'bg-sky-100 text-slate-900'
+                    )}
+                  >
+                    {item.label}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+}
+
+function DelegationCard({
+  travelRequest,
+  onFieldPatch,
+  onSelectRegarding,
+  onAddTrip,
+  onTripFieldChange,
+  onRemoveTrip,
+  onSync,
+  crmProjects,
+  crmProjectsLoading,
+  crmProjectsError,
+  crmVehicles,
+  crmVehiclesLoading,
+  crmVehiclesError,
+  crmConnected,
+  syncLoading,
+  syncError,
+  readOnly,
+  onDelete,
+  deleteLoading
+}) {
+  const hasCrmTravel = !!String(travelRequest?.crmTravelId || '').trim();
+  const statusLabel = getTravelStatusLabel(travelRequest);
+  const statusClass = getTravelStatusClass(travelRequest);
+  const statusValue = Number(travelRequest?.travelStatusValue);
+  const [costsOpen, setCostsOpen] = useState(false);
+  const [tripsOpen, setTripsOpen] = useState(() => Array.isArray(travelRequest?.tripEntries) && travelRequest.tripEntries.length > 0);
+  const canEditDetails =
+    hasCrmTravel &&
+    !readOnly &&
+    statusValue !== CRM_TRAVEL_STATUS.PASSED_TO_FA &&
+    !travelRequest?.toAccept;
+  const hasExpenseValues = ['dietCost', 'fuelCost', 'parkingCost', 'highwayCost', 'hotelCost', 'transportCost', 'additionalCost', 'foodCost', 'advanceCost'].some(
+    (key) => Number(travelRequest?.[key] || 0) > 0
+  );
+  const tripEntries = Array.isArray(travelRequest?.tripEntries) ? travelRequest.tripEntries : [];
+  const showTrips = tripsOpen;
+  const citySuggestions = useMemo(() => {
+    const dynamicCities = tripEntries.flatMap((entry) => [entry?.from, entry?.to]);
+    return [...new Set([...COMMON_CITY_SUGGESTIONS, travelRequest?.destinationCity, ...dynamicCities].map((value) => String(value || '').trim()).filter(Boolean))].sort((left, right) =>
+      left.localeCompare(right, 'pl')
+    );
+  }, [travelRequest?.destinationCity, tripEntries]);
+
+  useEffect(() => {
+    if (hasExpenseValues) {
+      setCostsOpen(true);
+    }
+  }, [hasExpenseValues]);
+
+  return (
+    <div className="mt-4 rounded-2xl border-2 border-indigo-200 bg-indigo-50/40 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-slate-800">
+            <CarFront className="h-4 w-4 text-indigo-600" />
+            <span className="font-semibold">Delegacja CRM</span>
+          </div>
+          <div className="mt-1 text-sm text-slate-500">
+            Formularz delegacji dla dnia z trybem pracy <span className="font-medium text-indigo-700">Delegacja</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {travelRequest?.crmTravelNumber ? (
+            <span className="inline-flex items-center rounded-full border border-indigo-300 bg-white px-3 py-1 text-xs font-medium text-indigo-700">
+              {travelRequest.crmTravelNumber}
+            </span>
+          ) : null}
+          <span className={cls('inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium', statusClass)}>
+            {statusLabel}
+          </span>
+        </div>
+      </div>
+
+      {!crmConnected && (
+        <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Aby wystawić delegację, zaloguj się najpierw do CRM.
+        </div>
+      )}
+      {crmProjectsError && (
+        <div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700">{crmProjectsError}</div>
+      )}
+      {crmVehiclesError && (
+        <div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700">{crmVehiclesError}</div>
+      )}
+      {syncError && (
+        <div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700">{syncError}</div>
+      )}
+
+      <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <label className="text-sm text-slate-700">
+          Numer delegacji
+          <input value={travelRequest?.crmTravelNumber || '—'} className={FIELD} disabled />
+        </label>
+        <label className="text-sm text-slate-700">
+          Klient
+          <input
+            value={travelRequest?.account?.name || ''}
+            className={FIELD}
+            placeholder="Klient uzupełni się po wyborze projektu lub szansy"
+            disabled
+          />
+        </label>
+
+        <label className="text-sm text-slate-700">
+          Data początkowa
+          <input
+            type="date"
+            value={travelRequest?.startDate || ''}
+            onChange={(event) => onFieldPatch({ startDate: event.target.value })}
+            className={FIELD}
+            disabled={readOnly}
+          />
+        </label>
+        <label className="text-sm text-slate-700">
+          Data końcowa
+          <input
+            type="date"
+            value={travelRequest?.endDate || ''}
+            onChange={(event) => onFieldPatch({ endDate: event.target.value })}
+            className={FIELD}
+            disabled={readOnly}
+          />
+        </label>
+
+        <label className="text-sm text-slate-700">
+          Godzina rozpoczęcia
+          <div>
+            <TimeSelect
+              value={travelRequest?.startTime || ''}
+              onChange={(value) => onFieldPatch({ startTime: value })}
+              disabled={readOnly}
+              size="plan"
+            />
+          </div>
+        </label>
+        <label className="text-sm text-slate-700">
+          Godzina zakończenia
+          <div>
+            <TimeSelect
+              value={travelRequest?.endTime || ''}
+              onChange={(value) => onFieldPatch({ endTime: value })}
+              disabled={readOnly}
+              size="plan"
+            />
+          </div>
+        </label>
+
+        <label className="text-sm text-slate-700 lg:col-span-2">
+          Projekt / Szansa
+          <CrmProjectSelect
+            value={travelRequest?.regardingLabel || ''}
+            fullValue={travelRequest?.regardingFullLabel || travelRequest?.regardingLabel || ''}
+            onChange={(next) =>
+              onFieldPatch({
+                regardingLabel: next,
+                regardingFullLabel: '',
+                regarding: null,
+                account: null
+              })}
+            onSelectOption={onSelectRegarding}
+            options={crmProjects}
+            disabled={readOnly}
+            loading={crmProjectsLoading}
+          />
+        </label>
+
+        <label className="text-sm text-slate-700">
+          Samochód
+          <SearchableOptionSelect
+            value={travelRequest?.vehicle?.name || ''}
+            onChange={(next) => {
+              if (!next.trim()) {
+                onFieldPatch({ vehicle: null });
+              }
+            }}
+            onSelectOption={(selectedVehicle) =>
+              onFieldPatch({
+                vehicle: selectedVehicle
+                  ? { id: selectedVehicle.id, logicalName: 'equipment', name: selectedVehicle.label }
+                  : null
+              })
+            }
+            options={crmVehicles}
+            disabled={readOnly}
+            loading={crmVehiclesLoading}
+            placeholder="Wybierz samochód"
+          />
+        </label>
+
+        <label className="text-sm text-slate-700">
+          Miasto docelowe
+          <input
+            value={travelRequest?.destinationCity || ''}
+            onChange={(event) => onFieldPatch({ destinationCity: event.target.value })}
+            className={FIELD}
+            placeholder="np. Kraków"
+            disabled={readOnly}
+          />
+        </label>
+
+        <label className="text-sm text-slate-700 lg:col-span-2">
+          Adres docelowy
+          <input
+            value={travelRequest?.destinationAddress || ''}
+            onChange={(event) => onFieldPatch({ destinationAddress: event.target.value })}
+            className={FIELD}
+            placeholder="np. adres klienta / miejsce docelowe"
+            disabled={readOnly}
+          />
+        </label>
+
+        <label className="text-sm text-slate-700 lg:col-span-2">
+          Cel delegacji
+          <input
+            value={travelRequest?.purpose || ''}
+            onChange={(event) => onFieldPatch({ purpose: event.target.value })}
+            className={FIELD}
+            placeholder="np. instalacja, uruchomienie, serwis"
+            disabled={readOnly}
+          />
+        </label>
+      </div>
+
+      {(canEditDetails || !readOnly) && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {canEditDetails && (
+            <>
+              <button type="button" onClick={() => setTripsOpen((open) => !open)} className={BTN}>
+                <CarFront className="h-4 w-4 text-indigo-600" /> {showTrips ? 'Ukryj przejazdy' : 'Dodaj przejazdy'}
+              </button>
+              <button type="button" onClick={() => setCostsOpen((open) => !open)} className={BTN}>
+                <Briefcase className="h-4 w-4 text-indigo-600" /> {costsOpen ? 'Ukryj koszty' : 'Dodaj koszty'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {showTrips && (
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+          <div className="text-sm font-medium text-slate-700">Przejazdy</div>
+          <datalist id="trip-city-suggestions">
+            {citySuggestions.map((city) => (
+              <option key={city} value={city} />
+            ))}
+          </datalist>
+          <div className="mt-3 space-y-3">
+            {tripEntries.length === 0 ? (
+              canEditDetails ? (
+                <div className="flex justify-center py-2">
+                  <button
+                    type="button"
+                    onClick={onAddTrip}
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-full border-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                    title="Dodaj przejazd"
+                  >
+                    <Plus className="h-5 w-5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="text-sm text-slate-500">Brak dodanych przejazdów.</div>
+              )
+            ) : (
+              tripEntries.map((entry, index) => (
+                <div key={entry.id || index} className="grid grid-cols-1 gap-3 lg:grid-cols-[2.25rem_minmax(0,1fr)_auto]">
+                  <div className="hidden lg:flex items-center justify-center text-indigo-600 lg:row-span-2">
+                    {index % 2 === 0 ? <ArrowRight className="h-5 w-5" /> : <ArrowLeft className="h-5 w-5" />}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="text-sm text-slate-700">
+                      Skąd
+                      <input
+                        list="trip-city-suggestions"
+                        value={entry.from || ''}
+                        onChange={(event) => onTripFieldChange(index, 'from', event.target.value)}
+                        className={FIELD}
+                        placeholder="np. Nowy Sącz"
+                        disabled={readOnly || !!entry.crmActivityId || statusValue === CRM_TRAVEL_STATUS.PASSED_TO_FA}
+                      />
+                    </label>
+                    <label className="text-sm text-slate-700">
+                      Dokąd
+                      <input
+                        list="trip-city-suggestions"
+                        value={entry.to || ''}
+                        onChange={(event) => onTripFieldChange(index, 'to', event.target.value)}
+                        className={FIELD}
+                        placeholder="np. Kwidzyn"
+                        disabled={readOnly || !!entry.crmActivityId || statusValue === CRM_TRAVEL_STATUS.PASSED_TO_FA}
+                      />
+                    </label>
+                  </div>
+                  <div className="flex items-end lg:row-span-2">
+                    <button
+                      type="button"
+                      onClick={() => onRemoveTrip(index)}
+                      className="rounded-lg border-2 border-slate-300 px-3 py-2 hover:bg-slate-50 disabled:opacity-50"
+                      disabled={readOnly || !!entry.crmActivityId || statusValue === CRM_TRAVEL_STATUS.PASSED_TO_FA}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 lg:col-start-2">
+                    <label className="text-sm text-slate-700">
+                      Start
+                      <div>
+                        <TimeSelect
+                          value={entry.start || ''}
+                          onChange={(value) => onTripFieldChange(index, 'start', value)}
+                          disabled={readOnly || !!entry.crmActivityId || statusValue === CRM_TRAVEL_STATUS.PASSED_TO_FA}
+                        />
+                      </div>
+                    </label>
+                    <label className="text-sm text-slate-700">
+                      Koniec
+                      <div>
+                        <TimeSelect
+                          value={entry.end || ''}
+                          onChange={(value) => onTripFieldChange(index, 'end', value)}
+                          disabled={readOnly || !!entry.crmActivityId || statusValue === CRM_TRAVEL_STATUS.PASSED_TO_FA}
+                        />
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              ))
+            )}
+            {canEditDetails && tripEntries.length > 0 && (
+              <div className="flex justify-center pt-1">
+                <button
+                  type="button"
+                  onClick={onAddTrip}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                  title="Dodaj kolejny przejazd"
+                >
+                  <Plus className="h-5 w-5" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {costsOpen && (
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+          <div className="text-sm font-medium text-slate-700">Koszty</div>
+          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
+            {[
+              ['dietCost', 'Dieta'],
+              ['fuelCost', 'Paliwo'],
+              ['parkingCost', 'Parking'],
+              ['highwayCost', 'Autostrada'],
+              ['hotelCost', 'Hotel'],
+              ['transportCost', 'Transport'],
+              ['additionalCost', 'Inne'],
+              ['foodCost', 'Gastronomia'],
+              ['advanceCost', 'Zaliczka']
+            ].map(([key, label]) => (
+              <label key={key} className="text-sm text-slate-700">
+                {label}
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={travelRequest?.[key] ?? ''}
+                  onChange={(event) => onFieldPatch({ [key]: event.target.value })}
+                  className={FIELD}
+                  placeholder="0,00"
+                  disabled={!canEditDetails}
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 flex items-center justify-between gap-3">
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="inline-flex items-center gap-2 rounded-xl border-2 border-rose-300 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={deleteLoading}
+          >
+            {deleteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Usuń delegację
+          </button>
+        )}
+        <button type="button" onClick={onSync} className={BTN} disabled={readOnly || !crmConnected || syncLoading}>
+          {syncLoading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" /> Zapisywanie...
+            </>
+          ) : (
+            <>
+              <CarFront className="h-4 w-4 text-indigo-600" />
+              {!hasCrmTravel ? 'Wystaw delegację w CRM' : canEditDetails ? 'Zapisz przejazdy i koszty' : 'Aktualizuj delegację w CRM'}
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const TaskRow = memo(function TaskRow({
   task,
   selected,
@@ -1328,7 +2120,17 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
   const [crmProjects, setCrmProjects] = useState([]);
   const [crmProjectsLoading, setCrmProjectsLoading] = useState(false);
   const [crmProjectsError, setCrmProjectsError] = useState('');
+  const [crmVehicles, setCrmVehicles] = useState([]);
+  const [crmVehiclesLoading, setCrmVehiclesLoading] = useState(false);
+  const [crmVehiclesError, setCrmVehiclesError] = useState('');
   const [crmImportingTasks, setCrmImportingTasks] = useState(false);
+  const [crmAbsencesOpen, setCrmAbsencesOpen] = useState(false);
+  const [crmAbsencesLoading, setCrmAbsencesLoading] = useState(false);
+  const [crmAbsencesError, setCrmAbsencesError] = useState('');
+  const [crmAbsences, setCrmAbsences] = useState([]);
+  const [crmTravelSaving, setCrmTravelSaving] = useState(false);
+  const [crmTravelError, setCrmTravelError] = useState('');
+  const [crmTravelDeleting, setCrmTravelDeleting] = useState(false);
   const fixedEmployeeProfile = !!employeeProfile?.id;
   const ownEmployeeId = employeeProfile?.id || null;
   const ownSelectionInitializedRef = useRef(false);
@@ -1398,6 +2200,8 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
         setCrmConnected(false);
         setCrmUser(null);
         setCrmProjects([]);
+        setCrmVehicles([]);
+        setCrmAbsences([]);
         if (err instanceof Error) {
           const details = typeof err.message === 'string' ? err.message : '';
           const isNetworkIssue = err.name === 'TypeError' || details.includes('Failed to fetch');
@@ -1429,12 +2233,21 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
     } finally {
       setActionsMenuOpen(false);
       setCrmModalOpen(false);
+      setCrmAbsencesOpen(false);
       setCrmConnected(false);
       setCrmUser(null);
       setCrmProjects([]);
+      setCrmVehicles([]);
+      setCrmAbsences([]);
+      setCrmAbsencesError('');
+      setCrmAbsencesLoading(false);
       setCrmProjectsError('');
+      setCrmVehiclesError('');
+      setCrmVehiclesLoading(false);
       setCrmLoading(false);
       setCrmError('');
+      setCrmTravelSaving(false);
+      setCrmTravelError('');
       setCrmCredentials((prev) => ({ ...prev, password: '' }));
       if (typeof onRequireLogin === 'function') {
         onRequireLogin();
@@ -1621,12 +2434,73 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
   useEffect(() => {
     if (!crmConnected) {
       setCrmProjects([]);
+      setCrmVehicles([]);
       setCrmProjectsError('');
       setCrmProjectsLoading(false);
+      setCrmVehiclesError('');
+      setCrmVehiclesLoading(false);
+      setCrmAbsences([]);
+      setCrmAbsencesError('');
+      setCrmAbsencesLoading(false);
+      setCrmTravelError('');
       return;
     }
     refreshCrmProjects();
   }, [crmConnected, refreshCrmProjects]);
+
+  useEffect(() => {
+    let active = true;
+    if (!crmConnected) return () => undefined;
+    setCrmVehiclesLoading(true);
+    setCrmVehiclesError('');
+    (async () => {
+      try {
+        const items = await fetchCrmVehicles(null, CRM_SESSION_SCOPE);
+        if (!active) return;
+        setCrmVehicles(items);
+      } catch (err) {
+        if (!active) return;
+        setCrmVehicles([]);
+        setCrmVehiclesError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (active) setCrmVehiclesLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [crmConnected]);
+
+  const openCrmAbsences = useCallback(async () => {
+    setActionsMenuOpen(false);
+    setCrmAbsencesOpen(true);
+
+    if (!crmConnected) {
+      setCrmAbsences([]);
+      setCrmAbsencesError('Najpierw połącz się z CRM.');
+      return;
+    }
+    if (!selectedEmployee?.name) {
+      setCrmAbsences([]);
+      setCrmAbsencesError('Nie wybrano pracownika.');
+      return;
+    }
+
+    setCrmAbsencesLoading(true);
+    setCrmAbsencesError('');
+    try {
+      const items = await fetchCrmAbsencesForEmployee({
+        ownerName: selectedEmployee.name,
+        crmScope: CRM_SESSION_SCOPE
+      });
+      setCrmAbsences(items);
+    } catch (err) {
+      setCrmAbsences([]);
+      setCrmAbsencesError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCrmAbsencesLoading(false);
+    }
+  }, [crmConnected, selectedEmployee?.name]);
 
   useEffect(() => {
     if (!actionsMenuOpen) return;
@@ -1725,7 +2599,7 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
   const createDraft = (plan) =>
     plan
       ? { ...plan, dirty: false }
-      : { id: null, shifts: [], note: '', dirty: false };
+      : { id: null, shifts: [], note: '', travelRequest: null, dirty: false };
 
   const [draftDay, setDraftDay] = useState(createDraft(sentDay));
   useEffect(() => {
@@ -1737,6 +2611,22 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
   }, [selectedEmployee?.id, dKey]);
 
   const shifts = draftDay.shifts || [];
+  const travelShifts = useMemo(
+    () => shifts.filter((shift) => (shift.mode || '') === 'TRAVEL'),
+    [shifts]
+  );
+  const hasTravelShift = travelShifts.length > 0;
+  const travelWindow = useMemo(() => {
+    const source = travelShifts.length ? travelShifts : shifts;
+    const ordered = source
+      .filter((shift) => shift?.start && shift?.end)
+      .slice()
+      .sort((left, right) => toMinutes(left.start) - toMinutes(right.start));
+    return {
+      start: ordered[0]?.start || '',
+      end: ordered[ordered.length - 1]?.end || ''
+    };
+  }, [shifts, travelShifts]);
   const planned = shifts.reduce((acc, s) => acc + (toMinutes(s.end) - toMinutes(s.start)), 0);
   const spanStart = shifts.map((s) => s.start).filter(Boolean).sort()[0];
   const spanEnd = shifts.map((s) => s.end).filter(Boolean).sort().slice(-1)[0];
@@ -1784,7 +2674,40 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
     setOutlookMenu({ task: null, anchor: null });
     setSplitPrompt(null);
     setSplitProcessing(false);
+    setCrmTravelError('');
   }, [selectedEmployee?.id, dKey]);
+
+  useEffect(() => {
+    if (!hasTravelShift) return;
+    setDraftDay((prev) => {
+      const currentTravel = prev.travelRequest || {};
+      const nextTravel = {
+        ...currentTravel,
+        startDate: currentTravel.startDate || dKey,
+        endDate: currentTravel.endDate || dKey,
+        startTime: currentTravel.startTime || '08:00',
+        endTime: currentTravel.endTime || '16:00',
+        toAccept: typeof currentTravel.toAccept === 'boolean' ? currentTravel.toAccept : true,
+        travelStatusValue: currentTravel.travelStatusValue || CRM_TRAVEL_STATUS.IN_PROGRESS,
+        tripEntries: Array.isArray(currentTravel.tripEntries) ? currentTravel.tripEntries.map(normalizeTripEntry) : []
+      };
+      if (deepEqual(currentTravel, nextTravel)) return prev;
+      return { ...prev, travelRequest: nextTravel };
+    });
+  }, [dKey, hasTravelShift]);
+
+  useEffect(() => {
+    setSubDraft((prev) => {
+      const nextItems = mergeTravelTripTasks(prev.items || [], getPersistedTravelRequest(draftDay.travelRequest));
+      if (deepEqual(prev.items || [], nextItems)) return prev;
+      return {
+        ...prev,
+        dayStatus: computeDayStatus(nextItems, planned),
+        items: nextItems
+      };
+    });
+  }, [draftDay.travelRequest, planned]);
+
   const reconcileTasksAfterPlanChange = useCallback(
     (items) => {
       const planStartMinutesSpan = spanStart ? toMinutes(spanStart) : null;
@@ -1975,18 +2898,19 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
             date: dKey,
             shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
             note: draftDay.note || '',
+            travelRequest: getPersistedTravelRequest(draftDay.travelRequest),
             sent: false,
             sentAt: null,
             logs: []
           };
 
       const existingSubmission = basePlan.submission ? { ...basePlan.submission } : {};
-      const itemStates = items || [];
+      const itemStates = pruneEmptyTaskDrafts(items || []);
       const hasSentTasks = itemStates.some((task) => task._syncState === 'SENT');
       const targetStatus = hasSentTasks ? 'SUBMITTED' : 'DRAFT';
       const now = new Date().toISOString();
       const normalizedItems = normalizeTaskStates(
-        items,
+        itemStates,
         targetStatus === 'SUBMITTED' ? 'SENT' : 'DRAFT'
       );
       const submissionPayload = {
@@ -1997,8 +2921,8 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
           targetStatus === 'SUBMITTED'
             ? existingSubmission.submittedAt || now
             : null,
-        reportedMinutes: computeReported(items),
-        dayStatus: computeDayStatus(items, planned),
+        reportedMinutes: computeReported(itemStates),
+        dayStatus: computeDayStatus(itemStates, planned),
         updatedAt: now
       };
 
@@ -2009,6 +2933,7 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
         date: dKey,
         shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
         note: draftDay.note || '',
+        travelRequest: getPersistedTravelRequest(draftDay.travelRequest),
         submission: {
           ...submissionPayload,
           items: submissionPayload.items.map(({ _syncState, ...rest }) => rest)
@@ -2045,7 +2970,7 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
         throw err;
       }
     },
-    [selectedEmployee?.id, sentDay, dKey, draftDay.shifts, draftDay.note, planned, setPlansByDate, isStaleContext]
+    [selectedEmployee?.id, sentDay, dKey, draftDay.shifts, draftDay.note, draftDay.travelRequest, planned, setPlansByDate, isStaleContext]
   );
   const outlookAnchorRect = outlookMenu.anchor ? outlookMenu.anchor.getBoundingClientRect() : null;
 
@@ -2100,6 +3025,329 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
       return { ...prev, shifts: next, dirty: true };
     });
 
+  const setTravelField = useCallback((patch) => {
+    setCrmTravelError('');
+    setDraftDay((prev) => ({
+      ...prev,
+      travelRequest: {
+        ...(prev.travelRequest || {}),
+        ...patch
+      },
+      dirty: true
+    }));
+  }, []);
+
+  const addTravelTrip = useCallback(() => {
+    const existingEntries = ((draftDay.travelRequest?.tripEntries || []).map((entry) => ({ ...entry })) || []);
+    const destinationCity = String(draftDay.travelRequest?.destinationCity || '').trim();
+    const lastEntry = existingEntries[existingEntries.length - 1];
+    let nextFrom = '';
+    let nextTo = '';
+
+    if (existingEntries.length === 0) {
+      nextFrom = DEFAULT_TRAVEL_HOME_CITY;
+      nextTo = '';
+    } else if (existingEntries.length === 1) {
+      nextFrom = String(lastEntry?.to || destinationCity).trim();
+      nextTo = DEFAULT_TRAVEL_HOME_CITY;
+    } else {
+      const lastTo = String(lastEntry?.to || '').trim();
+      const shouldGoToDestination = lastTo === DEFAULT_TRAVEL_HOME_CITY;
+      nextFrom = lastTo || (shouldGoToDestination ? DEFAULT_TRAVEL_HOME_CITY : destinationCity);
+      nextTo = shouldGoToDestination ? destinationCity : DEFAULT_TRAVEL_HOME_CITY;
+    }
+
+    setTravelField({
+      tripEntries: [
+        ...existingEntries,
+        {
+          id: `trip-${Date.now()}`,
+          from: nextFrom,
+          to: nextTo,
+          route: '',
+          start: travelWindow.start || '08:00',
+          end: travelWindow.end || '16:00',
+          crmActivityId: null
+        }
+      ]
+    });
+  }, [draftDay.travelRequest?.destinationCity, draftDay.travelRequest?.tripEntries, setTravelField, travelWindow.end, travelWindow.start]);
+
+  const setTravelTripField = useCallback(
+    (index, field, value) => {
+      const nextEntries = (draftDay.travelRequest?.tripEntries || []).map((entry, idx) =>
+        idx === index ? { ...entry, [field]: value } : entry
+      );
+      setTravelField({ tripEntries: nextEntries });
+    },
+    [draftDay.travelRequest?.tripEntries, setTravelField]
+  );
+
+  const removeTravelTrip = useCallback(
+    (index) => {
+      const nextEntries = (draftDay.travelRequest?.tripEntries || []).filter((_, idx) => idx !== index);
+      setTravelField({ tripEntries: nextEntries });
+    },
+    [draftDay.travelRequest?.tripEntries, setTravelField]
+  );
+
+  const persistPlanWithTravel = useCallback(
+    async (travelRequest) => {
+      if (!selectedEmployee) return null;
+      const planId = sentDay?.id || planIdFor(selectedEmployee.id, dKey);
+      const base = sentDay
+        ? sanitizePlan(sentDay)
+        : {
+          id: planId,
+          employeeId: selectedEmployee.id,
+          date: dKey,
+          shifts: [],
+          note: '',
+          travelRequest: getPersistedTravelRequest(draftDay.travelRequest),
+          sent: false,
+          sentAt: null,
+          logs: []
+        };
+
+      const payload = {
+        ...base,
+        id: planId,
+        employeeId: selectedEmployee.id,
+        date: dKey,
+        shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
+        note: draftDay.note || '',
+        travelRequest: getPersistedTravelRequest(travelRequest),
+        ...(base.submission ? { submission: { ...base.submission } } : {})
+      };
+
+      const saved = await savePlan(payload);
+      setPlansByDate((prev) => {
+        const current = prev[dKey];
+        if (current && deepEqual(current, saved)) return prev;
+        return { ...prev, [dKey]: saved };
+      });
+      return saved;
+    },
+    [selectedEmployee, sentDay, dKey, draftDay.shifts, draftDay.note]
+  );
+
+  const handleTravelRegardingSelect = useCallback(
+    (option, label) => {
+      setTravelField({
+        regardingLabel: label,
+        regardingFullLabel: option.label || label,
+        regarding: {
+          id: String(option.category === 'opportunity' ? option.opportunityId || option.id : option.id)
+            .replace(/^opportunity:/, '')
+            .trim(),
+          logicalName: option.category === 'opportunity' ? 'opportunity' : 'itarapro_project',
+          name:
+            option.category === 'opportunity'
+              ? option.opportunityName || option.label
+              : option.displayTitle || option.label
+        },
+        account:
+          option.accountId && option.customerName
+            ? {
+                id: option.accountId,
+                logicalName: 'account',
+                name: option.customerName
+              }
+            : null
+      });
+    },
+    [setTravelField]
+  );
+
+  const syncTravelToCrm = useCallback(async () => {
+    if (!selectedEmployee) return;
+    if (!crmConnected) {
+      setCrmTravelError('Najpierw połącz się z CRM.');
+      return null;
+    }
+
+    const currentTravel = draftDay.travelRequest || {};
+    const regarding = currentTravel.regarding;
+    if (!regarding?.id || !regarding?.logicalName) {
+      setCrmTravelError('Wybierz projekt albo szansę sprzedaży do delegacji.');
+      return null;
+    }
+
+    setCrmTravelSaving(true);
+    setCrmTravelError('');
+    try {
+      const tripEntries = Array.isArray(currentTravel.tripEntries) ? currentTravel.tripEntries : [];
+      const hasCompletedTrips = tripEntries.some(
+        (entry) => getTripRouteLabel(entry) && String(entry.start || '').trim() && String(entry.end || '').trim()
+      );
+      const hasCosts = ['dietCost', 'fuelCost', 'parkingCost', 'highwayCost', 'hotelCost', 'transportCost', 'additionalCost', 'foodCost', 'advanceCost']
+        .some((key) => Number(currentTravel[key] || 0) > 0);
+      const nextTravelStatusValue = (() => {
+        if (!String(currentTravel.crmTravelId || '').trim()) return CRM_TRAVEL_STATUS.IN_PROGRESS;
+        if (currentTravel.toAccept) return CRM_TRAVEL_STATUS.IN_PROGRESS;
+        if (hasCompletedTrips || hasCosts) return CRM_TRAVEL_STATUS.FILLED;
+        return Number(currentTravel.travelStatusValue || CRM_TRAVEL_STATUS.ACCEPTED);
+      })();
+
+      const payload = {
+        ...currentTravel,
+        startTime: currentTravel.startTime || '08:00',
+        endTime: currentTravel.endTime || '16:00',
+        regarding,
+        account: currentTravel.account || null,
+        vehicle: currentTravel.vehicle || null,
+        toAccept: typeof currentTravel.toAccept === 'boolean' ? currentTravel.toAccept : true,
+        travelStatusValue: nextTravelStatusValue
+      };
+
+      const existingTravelId = String(currentTravel.crmTravelId || '').trim();
+      const synced = existingTravelId
+        ? await updateCrmTravel({
+            travelId: existingTravelId,
+            travel: payload,
+            crmScope: CRM_SESSION_SCOPE
+          })
+        : await createCrmTravel({
+            travel: payload,
+            crmScope: CRM_SESSION_SCOPE
+          });
+
+      const nextTravel = {
+        ...payload,
+        crmTravelId: synced.travelId || existingTravelId,
+        crmTravelNumber: synced.travelNumber || currentTravel.crmTravelNumber || '',
+        crmSyncedAt: new Date().toISOString()
+      };
+
+      if (nextTravel.crmTravelId) {
+        const unsyncedTrips = tripEntries.filter(
+          (entry) =>
+            !entry.crmActivityId &&
+            getTripRouteLabel(entry) &&
+            String(entry.start || '').trim() &&
+            String(entry.end || '').trim()
+        );
+        for (const entry of unsyncedTrips) {
+          const created = await createCrmAppointmentActivity({
+            trip: {
+              from: String(entry.from || '').trim(),
+              to: String(entry.to || '').trim(),
+              start: entry.start,
+              end: entry.end
+            },
+            dateKey: nextTravel.startDate || dKey,
+            regarding: {
+              id: nextTravel.crmTravelId,
+              logicalName: 'itaratrv_travel',
+              name: nextTravel.crmTravelNumber || nextTravel.regardingLabel || 'Delegacja'
+            },
+            crmScope: CRM_SESSION_SCOPE
+          });
+          nextTravel.tripEntries = (nextTravel.tripEntries || []).map((tripEntry) =>
+            tripEntry.id === entry.id
+              ? {
+                  ...tripEntry,
+                  crmActivityId: created.activityId
+                }
+              : tripEntry
+          );
+          try {
+            await closeCrmAppointmentActivity(created.activityId, null, CRM_SESSION_SCOPE);
+          } catch {
+            /* keep created entry even if close fails */
+          }
+        }
+      }
+
+      const savedPlan = await persistPlanWithTravel(nextTravel);
+      const nextDraft = {
+        ...(savedPlan || draftDay),
+        travelRequest: nextTravel,
+        dirty: false
+      };
+      setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
+
+      if (typeof window !== 'undefined') {
+        window.alert(
+          existingTravelId
+            ? 'Delegacja została zaktualizowana w CRM.'
+            : `Delegacja została wystawiona w CRM${nextTravel.crmTravelNumber ? ` (${nextTravel.crmTravelNumber})` : ''}.`
+        );
+      }
+      return nextTravel;
+    } catch (err) {
+      if (isMissingCrmTravelError(err)) {
+        try {
+          const savedPlan = await persistPlanWithTravel(null);
+          const nextDraft = {
+            ...(savedPlan || draftDay),
+            travelRequest: null,
+            dirty: false
+          };
+          setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
+        } catch {
+          setDraftDay((prev) => ({ ...prev, travelRequest: null, dirty: false }));
+        }
+        setCrmTravelError('');
+        if (typeof window !== 'undefined') {
+          window.alert('Delegacja nie istnieje już w CRM, więc została usunięta z aplikacji.');
+        }
+      } else {
+        setCrmTravelError(err instanceof Error ? err.message : String(err));
+      }
+      return null;
+    } finally {
+      setCrmTravelSaving(false);
+    }
+  }, [crmConnected, draftDay, persistPlanWithTravel, selectedEmployee]);
+
+  const deleteTravelFromCrm = useCallback(async () => {
+    if (!selectedEmployee) return;
+    const currentTravel = draftDay.travelRequest || null;
+    if (!currentTravel) return;
+
+    const hasCrmTravel = !!String(currentTravel.crmTravelId || '').trim();
+    const confirmationMessage = hasCrmTravel
+      ? 'Czy na pewno usunąć delegację? Spowoduje to również usunięcie delegacji z CRM.'
+      : 'Czy na pewno usunąć delegację z aplikacji?';
+    if (typeof window !== 'undefined' && !window.confirm(confirmationMessage)) return;
+
+    setCrmTravelDeleting(true);
+    setCrmTravelError('');
+    try {
+      if (hasCrmTravel) {
+        await deleteCrmTravel(currentTravel.crmTravelId, null, CRM_SESSION_SCOPE);
+      }
+
+      const savedPlan = await persistPlanWithTravel(null);
+      const nextDraft = {
+        ...(savedPlan || draftDay),
+        travelRequest: null,
+        dirty: false
+      };
+      setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
+    } catch (err) {
+      if (isMissingCrmTravelError(err)) {
+        try {
+          const savedPlan = await persistPlanWithTravel(null);
+          const nextDraft = {
+            ...(savedPlan || draftDay),
+            travelRequest: null,
+            dirty: false
+          };
+          setDraftDay((prev) => (deepEqual(prev, nextDraft) ? prev : nextDraft));
+        } catch {
+          setDraftDay((prev) => ({ ...prev, travelRequest: null, dirty: false }));
+        }
+        setCrmTravelError('');
+      } else {
+        setCrmTravelError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      setCrmTravelDeleting(false);
+    }
+  }, [draftDay, persistPlanWithTravel, selectedEmployee]);
+
   const sendPlanToManager = async () => {
     if (!selectedEmployee || sendingPlan) return;
     setSendingPlan(true);
@@ -2125,6 +3373,7 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
       date: dKey,
       shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
       note: draftDay.note || '',
+      travelRequest: getPersistedTravelRequest(draftDay.travelRequest),
       sent: true,
       sentAt: now
     };
@@ -2202,7 +3451,10 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
     ? submitted.dayStatus || computeDayStatus(submitted.items, planned)
     : 'W trakcie';
 
-  const taskItems = useMemo(() => subDraft.items || [], [subDraft.items]);
+  const taskItems = useMemo(
+    () => (subDraft.items || []).filter((item) => !shouldHideEmptyTaskDraft(item)),
+    [subDraft.items]
+  );
   const [selectedTaskIds, setSelectedTaskIds] = useState([]);
   const editingTaskIdRef = useRef(null);
   useEffect(() => {
@@ -2336,6 +3588,34 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
   }, [planSignature, taskItems]);
 
   const addTask = useCallback(() => {
+    const tasksWithTime = taskItems
+      .filter((task) => task.start && task.end)
+      .map((task) => ({
+        ...task,
+        startMinutes: toMinutes(task.start),
+        endMinutes: toMinutes(task.end)
+      }))
+      .filter((task) => Number.isFinite(task.startMinutes) && Number.isFinite(task.endMinutes) && task.endMinutes > task.startMinutes)
+      .sort((left, right) => left.startMinutes - right.startMinutes);
+
+    const gapBetweenTasks = tasksWithTime.slice(1).reduce((found, task, index) => {
+      if (found) return found;
+      const previous = tasksWithTime[index];
+      if (!previous || task.startMinutes <= previous.endMinutes) return null;
+      return {
+        start: previous.end,
+        end: task.start
+      };
+    }, null);
+
+    const shouldFillGap = gapBetweenTasks && typeof window !== 'undefined'
+      ? window.confirm(
+          `Jest wolny czas między zadaniami od ${gapBetweenTasks.start} do ${gapBetweenTasks.end}. Utworzyć zadanie uzupełniające w tej luce?`
+        )
+      : false;
+
+    let splitMessages = [];
+
     setSubDraft((prev) => {
       const items = prev.items || [];
       const marked = items.map((item) => {
@@ -2350,8 +3630,8 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
       });
 
       const lastTaskWithEnd = [...marked].reverse().find((task) => task.end);
-      const defaultStart = lastTaskWithEnd?.end || shifts[0]?.start || '';
-      const defaultEnd = (() => {
+      let defaultStart = lastTaskWithEnd?.end || shifts[0]?.start || '';
+      let defaultEnd = (() => {
         if (shifts.length === 0) return '';
         const fallback = shifts[shifts.length - 1]?.end || '';
         if (!defaultStart) return fallback;
@@ -2359,6 +3639,13 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
         const candidate = shifts.find((shift) => toMinutes(shift.end) > startMinutes)?.end;
         return candidate || fallback;
       })();
+
+      if (gapBetweenTasks && shouldFillGap) {
+        if (shouldFillGap) {
+          defaultStart = gapBetweenTasks.start;
+          defaultEnd = gapBetweenTasks.end;
+        }
+      }
 
       const newTask = {
         id: `t${Date.now()}`,
@@ -2375,12 +3662,22 @@ export default function EmployeePanel({ employeeProfile = null, onEmployeeProfil
         _syncState: 'EDITED'
       };
 
+      const sortedItems = sortTasksByTime([...marked, newTask]);
+      const reconciled = reconcileTasksAfterPlanChange(sortedItems);
+      const nextItems = reconciled.changed ? reconciled.items : sortedItems;
+      splitMessages = reconciled.messages || [];
+
       return {
         ...prev,
-        items: sortTasksByTime([...marked, newTask])
+        items: nextItems
       };
     });
-  }, [shifts]);
+
+    if (typeof window !== 'undefined' && splitMessages.length) {
+      const header = 'Nowe zadanie zostało dostosowane do planu dnia.';
+      window.alert([header, ...splitMessages].join('\n\n'));
+    }
+  }, [reconcileTasksAfterPlanChange, shifts, taskItems]);
 
   const importPlanFallbackToTasks = useCallback(async () => {
     const requestContext = { employeeId: selectedEmployee?.id ?? null, dateKey: dKey };
@@ -3450,9 +4747,18 @@ Status: ${task.status || '-'}`;
     setError(null);
     const now = new Date().toISOString();
     const selectedSet = new Set(tasksToSendIds);
-    const nextItems = taskItems.map((item) => ({ ...item }));
+    let nextItems = taskItems.map((item) => ({ ...item }));
     const closeWarnings = [];
     try {
+      const selectedTravelTasks = nextItems.filter((item) => selectedSet.has(item.id) && item.travelManaged);
+      if (selectedTravelTasks.some((item) => !String(item.crmActivityId || '').trim())) {
+        const syncedTravel = await syncTravelToCrm();
+        if (!syncedTravel) {
+          throw new Error('Nie udało się zsynchronizować przejazdów delegacji z CRM.');
+        }
+        nextItems = mergeTravelTripTasks(nextItems, syncedTravel);
+      }
+
       for (const taskId of tasksToSendIds) {
         const itemIndex = nextItems.findIndex((item) => item.id === taskId);
         if (itemIndex === -1) continue;
@@ -3460,15 +4766,23 @@ Status: ${task.status || '-'}`;
           ...nextItems[itemIndex],
           workKind: wkOf(nextItems[itemIndex])
         };
-        const synced = await syncTaskToCrm(currentTask);
-        nextItems[itemIndex] = {
-          ...currentTask,
-          crmActivityId: synced.activityId,
-          crmSyncedAt: now,
-          crmClosePending: currentTask.status === 'Zakończone' && !!synced.closeWarning
-        };
-        if (synced.closeWarning) {
-          closeWarnings.push(`• ${currentTask.subject || currentTask.project || currentTask.id}: ${synced.closeWarning}`);
+        if (currentTask.travelManaged) {
+          nextItems[itemIndex] = {
+            ...currentTask,
+            crmSyncedAt: currentTask.crmSyncedAt || now,
+            crmClosePending: false
+          };
+        } else {
+          const synced = await syncTaskToCrm(currentTask);
+          nextItems[itemIndex] = {
+            ...currentTask,
+            crmActivityId: synced.activityId,
+            crmSyncedAt: now,
+            crmClosePending: currentTask.status === 'Zakończone' && !!synced.closeWarning
+          };
+          if (synced.closeWarning) {
+            closeWarnings.push(`• ${currentTask.subject || currentTask.project || currentTask.id}: ${synced.closeWarning}`);
+          }
         }
       }
     } catch (err) {
@@ -3494,12 +4808,13 @@ Status: ${task.status || '-'}`;
     const planId = sentDay?.id || planIdFor(selectedEmployee.id, dKey);
     const base = sentDay
       ? sanitizePlan(sentDay)
-      : {
+        : {
           id: planId,
           employeeId: selectedEmployee.id,
           date: dKey,
           shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
           note: draftDay.note || '',
+          travelRequest: getPersistedTravelRequest(draftDay.travelRequest),
           sent: false,
           sentAt: null,
           logs: []
@@ -3522,6 +4837,7 @@ Status: ${task.status || '-'}`;
       date: dKey,
       shifts: (draftDay.shifts || []).map((shift) => ({ ...shift })),
       note: draftDay.note || '',
+      travelRequest: getPersistedTravelRequest(draftDay.travelRequest),
       sent: base.sent || false,
       sentAt: base.sentAt || null,
       submission
@@ -3631,11 +4947,19 @@ Status: ${task.status || '-'}`;
   const isAbsenceDay =
     shifts.length > 0 && shifts.every((shift) => ['VACATION', 'SICK', 'ABSENCE'].includes(shift.mode));
 
+  const selectedTravelMinutes = taskItems.reduce((acc, item) => {
+    if (item.type !== 'Przejazd' || !item.start || !item.end) return acc;
+    return acc + (toMinutes(item.end) - toMinutes(item.start));
+  }, 0);
+  const selectedWorkMinutesRaw = taskItems.reduce((acc, item) => {
+    if (item.type === 'Przejazd' || !item.start || !item.end) return acc;
+    return acc + (toMinutes(item.end) - toMinutes(item.start));
+  }, 0);
   const selectedPlanReportedRaw = taskItems.reduce((acc, item) => {
     if (!item.start || !item.end) return acc;
     return acc + (toMinutes(item.end) - toMinutes(item.start));
   }, 0);
-  const selectedPlanReported = isAbsenceDay ? 0 : selectedPlanReportedRaw;
+  const selectedPlanReported = isAbsenceDay ? 0 : selectedWorkMinutesRaw;
   const reportedWithinPlan = Math.min(selectedPlanReported, planned);
   const reportedOvertime = Math.max(selectedPlanReported - reportedWithinPlan, 0);
   const reportedPlanLabel =
@@ -3644,6 +4968,8 @@ Status: ${task.status || '-'}`;
       : formatCompactDuration(reportedWithinPlan);
   const reportedOvertimeLabel =
     reportedOvertime > 0 ? `${formatCompactDuration(reportedOvertime)} nadgodzin` : null;
+  const reportedTravelLabel =
+    selectedTravelMinutes > 0 ? `${formatCompactDuration(selectedTravelMinutes)} godzin przejazdowych` : null;
 
   if (error) {
     return (
@@ -3716,6 +5042,14 @@ Status: ${task.status || '-'}`;
                 </button>
                 <button
                   type="button"
+                  onClick={openCrmAbsences}
+                  disabled={!crmConnected}
+                  className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-slate-50 disabled:text-slate-400 disabled:hover:bg-transparent"
+                >
+                  <Briefcase className="w-4 h-4" /> Urlopy
+                </button>
+                <button
+                  type="button"
                   onClick={handleCrmLogout}
                   disabled={!crmConnected}
                   className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-600 hover:bg-rose-50 disabled:text-slate-400 disabled:hover:bg-transparent"
@@ -3764,82 +5098,167 @@ Status: ${task.status || '-'}`;
         </aside>
 
         <section className={CARD}>
-          <div className="mb-3 flex items-center justify-between">
-            <div className="font-medium">
-              Plan dnia – <span className="text-slate-600">{selectedEmployee?.name ?? '—'}</span>
-            </div>
-          {dayStatus !== 'NONE' && (
-            <span
-              className={cls(
-                CHIP,
-                dayStatus === 'SENT'
-                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
-                  : 'bg-violet-50 border-violet-300 text-violet-700'
+          {crmAbsencesOpen ? (
+            <>
+              <div className="mb-3 flex items-center justify-between">
+                <div className="font-medium">
+                  Urlopy i nieobecności – <span className="text-slate-600">{selectedEmployee?.name ?? '—'}</span>
+                </div>
+                <button onClick={() => setCrmAbsencesOpen(false)} className={BTN}>
+                  Zamknij
+                </button>
+              </div>
+              <div className="text-sm text-slate-500 mb-3 flex items-center gap-2">
+                <Briefcase className="w-4 h-4" /> Dane pobrane z CRM dla wybranego pracownika
+              </div>
+              {crmAbsencesError && (
+                <div className="mb-3 rounded-xl border-2 border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{crmAbsencesError}</div>
               )}
-            >
-              {dayStatus === 'SENT' ? 'Wysłane' : 'Edytowane'}
-            </span>
-          )}
-          </div>
-          <div className="text-sm text-slate-500 mb-2 flex items-center gap-2">
-            <CalendarDays className="w-4 h-4" />
-            {selectedDate.toLocaleDateString('pl-PL', {
-              weekday: 'long',
-              day: '2-digit',
-              month: 'long',
-              year: 'numeric'
-            })}
-          </div>
-          {!isViewingOwnProfile && (
-            <div className="mb-3 rounded-xl border-2 border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700">
-              Tryb podglądu. Oglądasz plan innego pracownika, więc edycja i wysyłka są zablokowane.
-            </div>
-          )}
-
-          {planCollapsed ? (
-            <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-4 space-y-3">
-              {shifts.length > 0 ? (
-                <>
-                  <ul className="space-y-2 text-sm">
-                    {shifts.map((segment, idx) => {
-                      const meta = MODE_META[segment.mode || 'OFFICE'];
-                      const hasTimes = segment.start && segment.end;
-                      const timeLabel = hasTimes ? `${segment.start} - ${segment.end}` : '—';
-                      const note = segment.note ? ` - ${segment.note}` : '';
-                      return (
-                        <li key={idx} className="flex flex-wrap items-center justify-between gap-3">
-                          <div className="flex-1 text-sm text-slate-600">
-                            <span className="text-base font-semibold text-slate-700">{timeLabel}</span>
-                            {note && <span className="text-sm text-slate-500">{note}</span>}
+              {crmAbsencesLoading ? (
+                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Pobieram urlopy z CRM...
+                </div>
+              ) : crmAbsences.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                  Brak urlopów lub nieobecności w CRM dla wybranego pracownika.
+                </div>
+              ) : (
+                <div className="max-h-[32rem] overflow-y-auto rounded-xl border border-slate-200">
+                  <div className="divide-y divide-slate-200">
+                    {crmAbsences.map((item) => (
+                      <div key={item.id} className="px-3 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="font-medium text-slate-800">{item.reasonLabel || 'Nieobecność'}</div>
+                            <div className="mt-1 text-sm text-slate-600">
+                              {item.from || '—'}
+                              {item.until && item.until !== item.from ? ` – ${item.until}` : ''}
+                            </div>
                           </div>
                           <span
                             className={cls(
-                              CHIP,
-                              meta?.base,
-                              meta?.border,
-                              meta?.text
+                              'inline-flex items-center rounded-full border px-2.5 py-1 text-xs whitespace-nowrap',
+                              item.stateCode === 0
+                                ? 'border-amber-300 bg-amber-50 text-amber-700'
+                                : 'border-emerald-300 bg-emerald-50 text-emerald-700'
                             )}
                           >
-                            <span className={cls('inline-block h-2 w-2 rounded-full', meta?.dot)} /> {meta?.label || '—'}
+                            {item.statusLabel}
                           </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  <div className="text-sm text-slate-500">
-                    Łącznie: <span className="text-base font-semibold text-slate-700">{minutesToHHmm(planned)}</span>
+                        </div>
+                        <div className="mt-2 text-xs text-slate-500">
+                          {item.days ? `${item.days} dni` : '—'}
+                          {item.description ? ` • ${item.description}` : ''}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  {draftDay.note && (
-                    <div className="text-xs text-slate-500">
-                      <span className="font-medium text-slate-600">Notatka:</span> {draftDay.note}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-sm text-slate-500">Brak zakresów czasu.</div>
+                </div>
               )}
-            </div>
+            </>
           ) : (
+            <>
+              <div className="mb-3 flex items-center justify-between">
+                <div className="font-medium">
+                  Plan dnia – <span className="text-slate-600">{selectedEmployee?.name ?? '—'}</span>
+                </div>
+              {dayStatus !== 'NONE' && (
+                <span
+                  className={cls(
+                    CHIP,
+                    dayStatus === 'SENT'
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                      : 'bg-violet-50 border-violet-300 text-violet-700'
+                  )}
+                >
+                  {dayStatus === 'SENT' ? 'Wysłane' : 'Edytowane'}
+                </span>
+              )}
+              </div>
+              <div className="text-sm text-slate-500 mb-2 flex items-center gap-2">
+                <CalendarDays className="w-4 h-4" />
+                {selectedDate.toLocaleDateString('pl-PL', {
+                  weekday: 'long',
+                  day: '2-digit',
+                  month: 'long',
+                  year: 'numeric'
+                })}
+              </div>
+              {!isViewingOwnProfile && (
+                <div className="mb-3 rounded-xl border-2 border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700">
+                  Tryb podglądu. Oglądasz plan innego pracownika, więc edycja i wysyłka są zablokowane.
+                </div>
+              )}
+
+              {planCollapsed ? (
+            <>
+              <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-4 space-y-3">
+                {shifts.length > 0 ? (
+                  <>
+                    <ul className="space-y-2 text-sm">
+                      {shifts.map((segment, idx) => {
+                        const meta = MODE_META[segment.mode || 'OFFICE'];
+                        const hasTimes = segment.start && segment.end;
+                        const timeLabel = hasTimes ? `${segment.start} - ${segment.end}` : '—';
+                        const note = segment.note ? ` - ${segment.note}` : '';
+                        return (
+                          <li key={idx} className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex-1 text-sm text-slate-600">
+                              <span className="text-base font-semibold text-slate-700">{timeLabel}</span>
+                              {note && <span className="text-sm text-slate-500">{note}</span>}
+                            </div>
+                            <span
+                              className={cls(
+                                CHIP,
+                                meta?.base,
+                                meta?.border,
+                                meta?.text
+                              )}
+                            >
+                              <span className={cls('inline-block h-2 w-2 rounded-full', meta?.dot)} /> {meta?.label || '—'}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <div className="text-sm text-slate-500">
+                      Łącznie: <span className="text-base font-semibold text-slate-700">{minutesToHHmm(planned)}</span>
+                    </div>
+                    {draftDay.note && (
+                      <div className="text-xs text-slate-500">
+                        <span className="font-medium text-slate-600">Notatka:</span> {draftDay.note}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-sm text-slate-500">Brak zakresów czasu.</div>
+                )}
+              </div>
+              {hasTravelShift && (
+                <DelegationCard
+                  travelRequest={draftDay.travelRequest || {}}
+                  onFieldPatch={setTravelField}
+                  onSelectRegarding={handleTravelRegardingSelect}
+                  onAddTrip={addTravelTrip}
+                  onTripFieldChange={setTravelTripField}
+                  onRemoveTrip={removeTravelTrip}
+                  onSync={syncTravelToCrm}
+                  crmProjects={crmProjects}
+                  crmProjectsLoading={crmProjectsLoading}
+                  crmProjectsError={crmProjectsError}
+                  crmVehicles={crmVehicles}
+                  crmVehiclesLoading={crmVehiclesLoading}
+                  crmVehiclesError={crmVehiclesError}
+                  crmConnected={crmConnected}
+                  syncLoading={crmTravelSaving}
+                  syncError={crmTravelError}
+                  readOnly={!isViewingOwnProfile}
+                  onDelete={deleteTravelFromCrm}
+                  deleteLoading={crmTravelDeleting}
+                />
+              )}
+            </>
+              ) : (
             <>
               <div className="space-y-3">
                 {shifts.length === 0 && (
@@ -3942,6 +5361,30 @@ Status: ${task.status || '-'}`;
                 </div>
               </div>
 
+              {hasTravelShift && (
+                <DelegationCard
+                  travelRequest={draftDay.travelRequest || {}}
+                  onFieldPatch={setTravelField}
+                  onSelectRegarding={handleTravelRegardingSelect}
+                  onAddTrip={addTravelTrip}
+                  onTripFieldChange={setTravelTripField}
+                  onRemoveTrip={removeTravelTrip}
+                  onSync={syncTravelToCrm}
+                  crmProjects={crmProjects}
+                  crmProjectsLoading={crmProjectsLoading}
+                  crmProjectsError={crmProjectsError}
+                  crmVehicles={crmVehicles}
+                  crmVehiclesLoading={crmVehiclesLoading}
+                  crmVehiclesError={crmVehiclesError}
+                  crmConnected={crmConnected}
+                  syncLoading={crmTravelSaving}
+                  syncError={crmTravelError}
+                  readOnly={!isViewingOwnProfile}
+                  onDelete={deleteTravelFromCrm}
+                  deleteLoading={crmTravelDeleting}
+                />
+              )}
+
               {logsList.length > 0 && (
                 <div className="mt-4 rounded-xl border-2 border-slate-300 bg-slate-50 p-3">
                   <div className="text-sm font-medium mb-2">Logi</div>
@@ -3996,17 +5439,19 @@ Status: ${task.status || '-'}`;
                 </div>
               )}
             </>
-          )}
+              )}
 
-          <div className="mt-4 flex justify-center">
-            <button
-              onClick={() => setPlanCollapsed((prev) => !prev)}
-              className="rounded-full border-2 border-slate-300 p-1.5 hover:bg-slate-50 transition-colors"
-              aria-label={planCollapsed ? 'Rozwiń plan' : 'Zwiń plan'}
-            >
-              <ChevronDown className={cls('w-4 h-4 transition-transform', !planCollapsed && 'rotate-180')} />
-            </button>
-          </div>
+              <div className="mt-4 flex justify-center">
+                <button
+                  onClick={() => setPlanCollapsed((prev) => !prev)}
+                  className="rounded-full border-2 border-slate-300 p-1.5 hover:bg-slate-50 transition-colors"
+                  aria-label={planCollapsed ? 'Rozwiń plan' : 'Zwiń plan'}
+                >
+                  <ChevronDown className={cls('w-4 h-4 transition-transform', !planCollapsed && 'rotate-180')} />
+                </button>
+              </div>
+            </>
+          )}
         </section>
 
         {calendarOpen && (
@@ -4061,6 +5506,12 @@ Status: ${task.status || '-'}`;
               <>
                 {' + '}
                 <span className="text-rose-600 font-semibold">{reportedOvertimeLabel}</span>
+              </>
+            ) : null}
+            {reportedTravelLabel ? (
+              <>
+                {' + '}
+                <span className="font-semibold text-violet-600">{reportedTravelLabel}</span>
               </>
             ) : null}
           </span>
