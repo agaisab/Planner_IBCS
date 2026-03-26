@@ -1,5 +1,13 @@
-const getApiBase = () => import.meta.env?.VITE_API_URL || 'http://localhost:4170';
-const getCrmProxyBase = () => import.meta.env?.VITE_CRM_PROXY_URL || 'http://localhost:5050';
+const getApiBase = () =>
+  import.meta.env?.VITE_API_URL ||
+  (typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:4170`
+    : 'http://localhost:4170');
+const getCrmProxyBase = () =>
+  import.meta.env?.VITE_CRM_PROXY_URL ||
+  (typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:5050`
+    : 'http://localhost:5050');
 const getCrmProjectsPath = () =>
   import.meta.env?.VITE_CRM_PROJECT_PATH ||
   'Itarapro_projectSet?$select=Itarapro_projectId,Itarapro_project_number,Itarapro_title_internal,Itarapro_title_customer,OwnerId,obx_pm,itarapro_project_account_id,itarapro_project_opportunity_id,statecode,statuscode&$filter=statecode/Value eq 0&$orderby=Itarapro_project_number desc';
@@ -16,6 +24,13 @@ const toTimeMinutes = (hhmm) => {
   const [hours, minutes] = String(hhmm).split(':').map(Number);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return NaN;
   return hours * 60 + minutes;
+};
+
+const toTimeLabel = (totalMinutes) => {
+  if (!Number.isFinite(totalMinutes) || totalMinutes < 0) return '';
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 };
 
 const apiFetch = async (path, options = {}) => {
@@ -37,6 +52,12 @@ const apiFetch = async (path, options = {}) => {
 };
 
 export const fetchManagers = () => apiFetch('/managers');
+export const fetchManagerByCrmLogin = async (crmLogin) => {
+  const login = String(crmLogin || '').trim();
+  if (!login) return null;
+  const managers = await apiFetch(`/managers?crmLogin=${encodeURIComponent(login)}`);
+  return Array.isArray(managers) && managers.length ? managers[0] : null;
+};
 export const createManager = (payload) => apiFetch('/managers', { method: 'POST', body: JSON.stringify(payload) });
 export const updateManager = (id, payload) =>
   apiFetch(`/managers/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
@@ -47,6 +68,12 @@ export const fetchEmployees = (managerId) => {
   return apiFetch(`/employees${query}`);
 };
 export const fetchEmployee = (id) => apiFetch(`/employees/${id}`);
+export const fetchEmployeeByCrmLogin = async (crmLogin) => {
+  const login = String(crmLogin || '').trim();
+  if (!login) return null;
+  const employees = await apiFetch(`/employees?crmLogin=${encodeURIComponent(login)}`);
+  return Array.isArray(employees) && employees.length ? employees[0] : null;
+};
 export const createEmployee = (payload) => apiFetch('/employees', { method: 'POST', body: JSON.stringify(payload) });
 export const updateEmployee = (id, payload) =>
   apiFetch(`/employees/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
@@ -103,27 +130,29 @@ const pickFieldValue = (item, field) => {
   return undefined;
 };
 
-const buildCrmAuthPayload = (crmAuth = null) => {
+const buildCrmSessionPayload = ({ crmAuth = null, crmScope = 'default' } = {}) => {
   const login = String(crmAuth?.login || '').trim();
   const password = typeof crmAuth?.password === 'string' ? crmAuth.password : '';
   const domain = String(crmAuth?.domain || '').trim();
 
   return {
+    scope: crmScope || 'default',
     ...(login ? { login } : {}),
     ...(password ? { password } : {}),
     ...(domain ? { domain } : {})
   };
 };
 
-const fetchCrmPage = async (path, crmAuth = null) => {
+const fetchCrmPage = async (path, crmAuth = null, crmScope = 'default') => {
   const response = await fetch(`${getCrmProxyBase()}/crm/odata`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
       path,
-      ...buildCrmAuthPayload(crmAuth)
+      ...buildCrmSessionPayload({ crmAuth, crmScope })
     })
   });
 
@@ -152,7 +181,7 @@ const fetchCrmPage = async (path, crmAuth = null) => {
   };
 };
 
-const fetchAllCrmPages = async (initialPath, entityLabel, crmAuth = null) => {
+const fetchAllCrmPages = async (initialPath, entityLabel, crmAuth = null, crmScope = 'default') => {
   const allResults = [];
   const visited = new Set();
   let nextPath = initialPath;
@@ -166,7 +195,7 @@ const fetchAllCrmPages = async (initialPath, entityLabel, crmAuth = null) => {
       throw new Error(`Pobieranie ${entityLabel} CRM zostało przerwane: zbyt wiele stron wyników.`);
     }
 
-    const page = await fetchCrmPage(nextPath, crmAuth);
+    const page = await fetchCrmPage(nextPath, crmAuth, crmScope);
     allResults.push(...page.results);
     nextPath = page.next;
   }
@@ -174,10 +203,10 @@ const fetchAllCrmPages = async (initialPath, entityLabel, crmAuth = null) => {
   return allResults;
 };
 
-export const fetchCrmProjects = async (crmAuth = null) => {
+export const fetchCrmProjects = async (crmAuth = null, crmScope = 'default') => {
   const [allResults, allOpportunities] = await Promise.all([
-    fetchAllCrmPages(getCrmProjectsPath(), 'projektów', crmAuth),
-    fetchAllCrmPages(getCrmOpportunitiesPath(), 'szans sprzedaży', crmAuth)
+    fetchAllCrmPages(getCrmProjectsPath(), 'projektów', crmAuth, crmScope),
+    fetchAllCrmPages(getCrmOpportunitiesPath(), 'szans sprzedaży', crmAuth, crmScope)
   ]);
 
   const labelField = getCrmProjectLabelField();
@@ -390,6 +419,47 @@ const matchesComparablePersonName = (left, right) => {
   return leftTokens.every((token) => rightTokens.includes(token)) || rightTokens.every((token) => leftTokens.includes(token));
 };
 
+const buildOwnerHints = (value) => {
+  const rawValues = Array.isArray(value) ? value : [value];
+  const hints = [];
+
+  rawValues.forEach((entry) => {
+    const normalized = normalizeComparableText(entry);
+    if (!normalized) return;
+    if (!hints.includes(normalized)) hints.push(normalized);
+
+    const compact = normalized.replace(/\s+/g, '');
+    if (compact && compact !== normalized && !hints.includes(compact)) {
+      hints.push(compact);
+    }
+
+    if (compact && compact.length > 2) {
+      const withoutLeadingInitial = compact.slice(1);
+      if (withoutLeadingInitial.length > 2 && !hints.includes(withoutLeadingInitial)) {
+        hints.push(withoutLeadingInitial);
+      }
+    }
+  });
+
+  return hints;
+};
+
+const matchesOwnerHints = (ownerResolvedName, ownerHint) => {
+  const normalizedOwner = normalizeComparableText(ownerResolvedName);
+  const ownerHints = buildOwnerHints(ownerHint);
+  if (!ownerHints.length || !normalizedOwner) return true;
+
+  return ownerHints.some((hint) => {
+    if (!hint) return false;
+    return (
+      normalizedOwner === hint ||
+      normalizedOwner.includes(hint) ||
+      hint.includes(normalizedOwner) ||
+      matchesComparablePersonName(ownerResolvedName, hint)
+    );
+  });
+};
+
 const buildCrmDayRangeUtc = (dateKey) => {
   const [year, month, day] = String(dateKey || '').split('-').map(Number);
   if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
@@ -435,26 +505,211 @@ const parsePlannerDescription = (description) => {
   return parsed;
 };
 
+const trimCrmSubjectAfterDash = (subject) => {
+  const raw = String(subject || '').trim();
+  if (!raw) return '';
+  const normalized = normalizeComparableText(raw);
+  if (normalized.startsWith('dp ') || normalized.startsWith('dp -')) {
+    return raw;
+  }
+  const dashIndex = raw.lastIndexOf(' - ');
+  if (dashIndex === -1) return raw;
+  const trimmed = raw.slice(dashIndex + 3).trim();
+  return trimmed || raw;
+};
+
+const derivePlannerSubjectFromCrm = (subject, regardingName = '') => {
+  const raw = String(subject || '').trim();
+  if (!raw) return '';
+
+  const normalized = normalizeComparableText(raw);
+  if (normalized.startsWith('dp ') || normalized.startsWith('dp -')) {
+    return raw;
+  }
+
+  const withoutPrefix = raw.replace(/^[A-Z]{2}\s*-\s*/i, '').trim();
+  const regardingRaw = String(regardingName || '').trim();
+
+  if (regardingRaw) {
+    const regardingVariants = [
+      regardingRaw,
+      regardingRaw.replace(/\s+/g, ' ').trim()
+    ]
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    for (const variant of regardingVariants) {
+      const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const stripPatterns = [
+        new RegExp(`\\s*-\\s*${escaped}$`, 'i'),
+        new RegExp(`\\s+${escaped}$`, 'i')
+      ];
+
+      for (const pattern of stripPatterns) {
+        const stripped = withoutPrefix.replace(pattern, '').trim();
+        if (stripped && stripped !== withoutPrefix) {
+          return stripped;
+        }
+      }
+    }
+  }
+
+  const firstDashIndex = withoutPrefix.indexOf(' - ');
+  if (firstDashIndex !== -1) {
+    const trimmed = withoutPrefix.slice(0, firstDashIndex).trim();
+    if (trimmed) return trimmed;
+  }
+
+  return withoutPrefix || raw;
+};
+
 const isSystemCrmTask = (subject) => {
   const normalized = normalizeComparableText(subject);
   if (!normalized) return false;
   return normalized.startsWith('delegacja ') && normalized.includes('oczekuje na akceptacje');
 };
 
-export const fetchCrmTasksForDate = async ({ dateKey, ownerName = '', crmAuth = null } = {}) => {
+const sanitizeCrmDayEntries = (entries = []) => {
+  return (entries || []).filter((item) => {
+    const normalizedSubject = normalizeComparableText(item?.subject);
+    return normalizedSubject && !normalizedSubject.startsWith('!przejazdy');
+  });
+};
+
+const CRM_ACTIVITY_KIND_TO_WORK_KIND = {
+  862510000: 'Zwykłe',
+  862510001: '+ 50%',
+  862510002: 'Nocne',
+  862510003: '+ 100%'
+};
+
+const WORK_KIND_TO_CRM_ACTIVITY_KIND = {
+  'Zwykłe': 862510000,
+  '+ 50%': 862510001,
+  Nocne: 862510002,
+  '+ 100%': 862510003
+};
+
+const parseCrmOptionSetValue = (value) =>
+  typeof value === 'object' && value !== null && 'Value' in value ? Number(value.Value) : Number(value);
+
+const mapCrmActivityKindToWorkKind = (value) => CRM_ACTIVITY_KIND_TO_WORK_KIND[parseCrmOptionSetValue(value)] || 'Zwykłe';
+
+export const fetchCrmTasksForDate = async ({ dateKey, ownerName = '', crmAuth = null, crmScope = 'default' } = {}) => {
   const dayRange = buildCrmDayRangeUtc(dateKey);
   if (!dayRange) return [];
 
   const path =
-    `TaskSet?$select=ActivityId,Subject,Description,OwnerId,RegardingObjectId,ActualStart,ActualEnd,ScheduledStart,ScheduledEnd,ActualDurationMinutes,StateCode,StatusCode` +
+    `TaskSet?$select=ActivityId,Subject,Description,OwnerId,RegardingObjectId,ActualStart,ActualEnd,ScheduledStart,ScheduledEnd,ActualDurationMinutes,StateCode,StatusCode,obx_calculatetime` +
     `&$filter=((ActualStart ge ${crmDateLiteral(dayRange.start)} and ActualStart lt ${crmDateLiteral(dayRange.end)})` +
     ` or (ScheduledStart ge ${crmDateLiteral(dayRange.start)} and ScheduledStart lt ${crmDateLiteral(dayRange.end)}))` +
     `&$orderby=ActualStart asc,ScheduledStart asc`;
+  const travelPath =
+    `Itaratrv_travelSet?$select=Itaratrv_travelId,itaratrv_name,Itaratrv_travel_number,Itaratrv_travel_start,Itaratrv_travel_end,Itaratrv_travel_to_city,OwnerId,statecode,statuscode,itaratrv_travel_project_id` +
+    `&$filter=((Itaratrv_travel_start lt ${crmDateLiteral(dayRange.end)} and Itaratrv_travel_end ge ${crmDateLiteral(dayRange.start)})` +
+    ` or (Itaratrv_travel_start ge ${crmDateLiteral(dayRange.start)} and Itaratrv_travel_start lt ${crmDateLiteral(dayRange.end)}))` +
+    `&$orderby=Itaratrv_travel_start asc`;
+  const resourceUsagePath =
+    `itarapro_resourceusageSet?$select=ActivityId,Subject,ScheduledStart,ScheduledEnd,ActualStart,ActualEnd,OwnerId,RegardingObjectId,StateCode,StatusCode` +
+    `&$filter=((ScheduledStart ge ${crmDateLiteral(dayRange.start)} and ScheduledStart lt ${crmDateLiteral(dayRange.end)})` +
+    ` or (ActualStart ge ${crmDateLiteral(dayRange.start)} and ActualStart lt ${crmDateLiteral(dayRange.end)}))` +
+    `&$orderby=ScheduledStart asc,ActualStart asc`;
 
-  const allResults = await fetchAllCrmPages(path, 'działań', crmAuth);
-  const normalizedOwnerName = normalizeComparableText(ownerName);
+  const [allResults, travelResults, resourceUsageResults] = await Promise.all([
+    fetchAllCrmPages(path, 'działań', crmAuth, crmScope),
+    fetchAllCrmPages(travelPath, 'delegacji pracowniczych', crmAuth, crmScope),
+    fetchAllCrmPages(resourceUsagePath, 'użyć zasobów', crmAuth, crmScope)
+  ]);
+  const resourceUsageEntries = resourceUsageResults
+    .map((item) => {
+      const activityId = pickFieldValue(item, 'ActivityId') ?? pickFieldValue(item, 'activityid') ?? null;
+      const subject = trimCrmSubjectAfterDash(
+        String(pickFieldValue(item, 'Subject') ?? pickFieldValue(item, 'subject') ?? '').trim()
+      );
+      const ownerReference = pickFieldValue(item, 'OwnerId') ?? pickFieldValue(item, 'ownerid') ?? null;
+      const regardingReference =
+        pickFieldValue(item, 'RegardingObjectId') ?? pickFieldValue(item, 'regardingobjectid') ?? null;
+      const scheduledStart =
+        pickFieldValue(item, 'ScheduledStart') ?? pickFieldValue(item, 'scheduledstart') ?? null;
+      const scheduledEnd = pickFieldValue(item, 'ScheduledEnd') ?? pickFieldValue(item, 'scheduledend') ?? null;
+      const actualStart = pickFieldValue(item, 'ActualStart') ?? pickFieldValue(item, 'actualstart') ?? null;
+      const actualEnd = pickFieldValue(item, 'ActualEnd') ?? pickFieldValue(item, 'actualend') ?? null;
+      const stateCode = pickFieldValue(item, 'StateCode') ?? pickFieldValue(item, 'statecode') ?? null;
+      const statusCode = pickFieldValue(item, 'StatusCode') ?? pickFieldValue(item, 'statuscode') ?? null;
 
-  return allResults
+      const ownerResolvedName =
+        typeof ownerReference === 'object' && ownerReference !== null
+          ? String(ownerReference.Name || ownerReference.name || '').trim()
+          : typeof ownerReference === 'string'
+          ? ownerReference.trim()
+          : '';
+      const normalizedItemOwner = normalizeComparableText(ownerResolvedName);
+      const regardingId =
+        typeof regardingReference === 'object' && regardingReference !== null
+          ? String(regardingReference.Id || regardingReference.id || '').trim()
+          : '';
+      const regardingName =
+        typeof regardingReference === 'object' && regardingReference !== null
+          ? String(regardingReference.Name || regardingReference.name || '').trim()
+          : typeof regardingReference === 'string'
+          ? regardingReference.trim()
+          : '';
+      const regardingLogicalName =
+        typeof regardingReference === 'object' && regardingReference !== null
+          ? String(regardingReference.LogicalName || regardingReference.logicalName || '').trim()
+          : '';
+      const normalizedSubject = normalizeComparableText(subject);
+      const derivedType = normalizedSubject.startsWith('dp ') || normalizedSubject.startsWith('dp -')
+        ? 'Przejazd'
+        : normalizedSubject.startsWith('tr ') || normalizedSubject.startsWith('tr -')
+        ? 'Delegacja'
+        : 'Biuro';
+
+      return {
+        activityId: activityId ? String(activityId).trim() : '',
+        subject: derivePlannerSubjectFromCrm(subject, regardingName),
+        description: '',
+        ownerName: ownerResolvedName,
+        regarding: regardingId
+          ? {
+              id: regardingId,
+              logicalName: regardingLogicalName,
+              name: regardingName
+            }
+          : null,
+        start: toLocalTimeLabel(actualStart || scheduledStart),
+        end: toLocalTimeLabel(actualEnd || scheduledEnd),
+        stateCode:
+          typeof stateCode === 'object' && stateCode !== null && 'Value' in stateCode
+            ? Number(stateCode.Value)
+            : Number(stateCode),
+        statusCode:
+          typeof statusCode === 'object' && statusCode !== null && 'Value' in statusCode
+            ? Number(statusCode.Value)
+            : Number(statusCode),
+        plannerDetails: {
+          type: derivedType,
+          plannerStatus: 'Planowane'
+        },
+        matchesOwner: matchesOwnerHints(ownerResolvedName, ownerName),
+        recordType: 'resourceusage'
+      };
+    })
+    .filter((item) => item.activityId && item.subject)
+    .filter((item) => item.matchesOwner);
+
+  if (resourceUsageEntries.length) {
+    return sanitizeCrmDayEntries(resourceUsageEntries).sort((left, right) => {
+      const leftMinutes = toTimeMinutes(left.start);
+      const rightMinutes = toTimeMinutes(right.start);
+      if (Number.isFinite(leftMinutes) && Number.isFinite(rightMinutes) && leftMinutes !== rightMinutes) {
+        return leftMinutes - rightMinutes;
+      }
+      return String(left.subject || '').localeCompare(String(right.subject || ''), 'pl');
+    });
+  }
+
+  const taskEntries = allResults
     .map((item) => {
       const activityId = pickFieldValue(item, 'ActivityId') ?? pickFieldValue(item, 'activityid') ?? null;
       const subject = pickFieldValue(item, 'Subject') ?? pickFieldValue(item, 'subject') ?? '';
@@ -469,6 +724,8 @@ export const fetchCrmTasksForDate = async ({ dateKey, ownerName = '', crmAuth = 
       const scheduledEnd = pickFieldValue(item, 'ScheduledEnd') ?? pickFieldValue(item, 'scheduledend') ?? null;
       const stateCode = pickFieldValue(item, 'StateCode') ?? pickFieldValue(item, 'statecode') ?? null;
       const statusCode = pickFieldValue(item, 'StatusCode') ?? pickFieldValue(item, 'statuscode') ?? null;
+      const crmActivityKind =
+        pickFieldValue(item, 'obx_calculatetime') ?? pickFieldValue(item, 'Obx_calculatetime') ?? null;
       const ownerResolvedName =
         typeof ownerReference === 'object' && ownerReference !== null
           ? String(ownerReference.Name || ownerReference.name || '').trim()
@@ -496,7 +753,7 @@ export const fetchCrmTasksForDate = async ({ dateKey, ownerName = '', crmAuth = 
 
       return {
         activityId: activityId ? String(activityId).trim() : '',
-        subject: String(subject || '').trim(),
+        subject: derivePlannerSubjectFromCrm(String(subject || '').trim(), regardingName),
         description: String(description || '').trim(),
         ownerName: ownerResolvedName,
         regarding: regardingId
@@ -513,22 +770,163 @@ export const fetchCrmTasksForDate = async ({ dateKey, ownerName = '', crmAuth = 
             ? Number(stateCode.Value)
             : Number(stateCode),
         statusCode:
-          typeof statusCode === 'object' && statusCode !== null && 'Value' in statusCode
-            ? Number(statusCode.Value)
-            : Number(statusCode),
+          parseCrmOptionSetValue(statusCode),
         plannerDetails,
-        matchesOwner:
-          !normalizedOwnerName ||
-          !normalizedItemOwner ||
-          normalizedItemOwner === normalizedOwnerName ||
-          normalizedItemOwner.includes(normalizedOwnerName) ||
-          normalizedOwnerName.includes(normalizedItemOwner) ||
-          matchesComparablePersonName(ownerResolvedName, ownerName)
+        crmWorkKind: mapCrmActivityKindToWorkKind(crmActivityKind),
+        matchesOwner: matchesOwnerHints(ownerResolvedName, ownerName)
       };
     })
     .filter((item) => item.activityId && item.subject)
     .filter((item) => !isSystemCrmTask(item.subject))
     .filter((item) => item.matchesOwner);
+
+  const travelEntries = travelResults
+    .map((item) => {
+      const travelId = pickFieldValue(item, 'Itaratrv_travelId') ?? pickFieldValue(item, 'itaratrv_travelid') ?? null;
+      const travelNumber = pickFieldValue(item, 'Itaratrv_travel_number') ?? pickFieldValue(item, 'itaratrv_travel_number') ?? '';
+      const travelName = pickFieldValue(item, 'itaratrv_name') ?? pickFieldValue(item, 'Itaratrv_name') ?? '';
+      const travelCity = pickFieldValue(item, 'Itaratrv_travel_to_city') ?? pickFieldValue(item, 'itaratrv_travel_to_city') ?? '';
+      const travelStart =
+        pickFieldValue(item, 'Itaratrv_travel_start') ?? pickFieldValue(item, 'itaratrv_travel_start') ?? null;
+      const travelEnd =
+        pickFieldValue(item, 'Itaratrv_travel_end') ?? pickFieldValue(item, 'itaratrv_travel_end') ?? null;
+      const ownerReference = pickFieldValue(item, 'OwnerId') ?? pickFieldValue(item, 'ownerid') ?? null;
+      const projectReference =
+        pickFieldValue(item, 'itaratrv_travel_project_id') ?? pickFieldValue(item, 'Itaratrv_travel_project_id') ?? null;
+      const stateCode = pickFieldValue(item, 'statecode') ?? pickFieldValue(item, 'StateCode') ?? null;
+      const statusCode = pickFieldValue(item, 'statuscode') ?? pickFieldValue(item, 'StatusCode') ?? null;
+
+      const ownerResolvedName =
+        typeof ownerReference === 'object' && ownerReference !== null
+          ? String(ownerReference.Name || ownerReference.name || '').trim()
+          : typeof ownerReference === 'string'
+          ? ownerReference.trim()
+          : '';
+      const normalizedItemOwner = normalizeComparableText(ownerResolvedName);
+      const projectId =
+        typeof projectReference === 'object' && projectReference !== null
+          ? String(projectReference.Id || projectReference.id || '').trim()
+          : '';
+      const projectName =
+        typeof projectReference === 'object' && projectReference !== null
+          ? String(projectReference.Name || projectReference.name || '').trim()
+          : typeof projectReference === 'string'
+          ? projectReference.trim()
+          : '';
+
+      const numberLabel = String(travelNumber || '').trim();
+      const cityLabel = String(travelCity || '').trim();
+      const fallbackName = String(travelName || '').trim();
+      const locationAndNumber = [cityLabel, numberLabel].filter(Boolean).join(' ');
+      const subjectLabel = locationAndNumber ? `DP - ${locationAndNumber}` : numberLabel ? `DP - ${numberLabel}` : 'DP';
+
+      return {
+        activityId: travelId ? String(travelId).trim() : '',
+        travelId: travelId ? String(travelId).trim() : '',
+        travelNumber: numberLabel,
+        subject: subjectLabel,
+        description: fallbackName,
+        ownerName: ownerResolvedName,
+        regarding: projectId
+          ? {
+              id: projectId,
+              logicalName: 'itarapro_project',
+              name: projectName
+            }
+          : null,
+        start: toLocalTimeLabel(travelStart),
+        end: toLocalTimeLabel(travelEnd),
+        stateCode:
+          typeof stateCode === 'object' && stateCode !== null && 'Value' in stateCode
+            ? Number(stateCode.Value)
+            : Number(stateCode),
+        statusCode:
+          typeof statusCode === 'object' && statusCode !== null && 'Value' in statusCode
+            ? Number(statusCode.Value)
+            : Number(statusCode),
+        plannerDetails: {
+          type: 'Przejazd',
+          client: cityLabel,
+          plannerStatus: 'Planowane'
+        },
+        matchesOwner: matchesOwnerHints(ownerResolvedName, ownerName),
+        recordType: 'travel'
+      };
+    })
+    .filter((item) => item.activityId && item.subject)
+    .filter((item) => item.matchesOwner);
+
+  const resolvedTravelEntriesNested = await Promise.all(
+    travelEntries.map(async (travelEntry) => {
+      if (!travelEntry.travelId) return [travelEntry];
+
+      const relatedPointers = await fetchAllCrmPages(
+        `Itaratrv_travelSet(guid'${travelEntry.travelId}')/itaratrv_travel_ActivityPointers?$select=ActivityId,Subject,ScheduledStart,ScheduledEnd,ActualStart,ActualEnd,OwnerId`,
+        'aktywności delegacji',
+        crmAuth,
+        crmScope
+      ).catch(() => []);
+
+      const mappedPointers = relatedPointers
+        .map((item) => {
+          const activityId = pickFieldValue(item, 'ActivityId') ?? pickFieldValue(item, 'activityid') ?? null;
+          const subjectRaw = String(pickFieldValue(item, 'Subject') ?? pickFieldValue(item, 'subject') ?? '').trim();
+          const ownerReference = pickFieldValue(item, 'OwnerId') ?? pickFieldValue(item, 'ownerid') ?? null;
+          const scheduledStart =
+            pickFieldValue(item, 'ScheduledStart') ?? pickFieldValue(item, 'scheduledstart') ?? null;
+          const scheduledEnd = pickFieldValue(item, 'ScheduledEnd') ?? pickFieldValue(item, 'scheduledend') ?? null;
+          const actualStart = pickFieldValue(item, 'ActualStart') ?? pickFieldValue(item, 'actualstart') ?? null;
+          const actualEnd = pickFieldValue(item, 'ActualEnd') ?? pickFieldValue(item, 'actualend') ?? null;
+
+          const ownerResolvedName =
+            typeof ownerReference === 'object' && ownerReference !== null
+              ? String(ownerReference.Name || ownerReference.name || '').trim()
+              : typeof ownerReference === 'string'
+              ? ownerReference.trim()
+              : '';
+
+          const normalizedSubject = normalizeComparableText(subjectRaw);
+          if (
+            !activityId ||
+            !subjectRaw ||
+            !matchesOwnerHints(ownerResolvedName, ownerName) ||
+            normalizedSubject.startsWith('delegacja ') ||
+            normalizedSubject.startsWith('twoja delegacja')
+          ) {
+            return null;
+          }
+
+          const composedSubject = `DP - ${subjectRaw}${travelEntry.travelNumber ? ` ${travelEntry.travelNumber}` : ''}`.trim();
+          const startLabel = toLocalTimeLabel(scheduledStart || actualStart);
+          const endLabel = toLocalTimeLabel(scheduledEnd || actualEnd);
+          if (!startLabel || !endLabel) return null;
+
+          return {
+            ...travelEntry,
+            activityId: String(activityId).trim(),
+            subject: composedSubject,
+            start: startLabel,
+            end: endLabel,
+            ownerName: ownerResolvedName || travelEntry.ownerName
+          };
+        })
+        .filter(Boolean)
+        .sort((left, right) => toTimeMinutes(left.start) - toTimeMinutes(right.start));
+
+      return mappedPointers.length ? mappedPointers : [travelEntry];
+    })
+  );
+
+  const resolvedTravelEntries = resolvedTravelEntriesNested.flat();
+
+  return sanitizeCrmDayEntries([...taskEntries, ...resolvedTravelEntries]).sort((left, right) => {
+    const leftMinutes = toTimeMinutes(left.start);
+    const rightMinutes = toTimeMinutes(right.start);
+    if (Number.isFinite(leftMinutes) && Number.isFinite(rightMinutes) && leftMinutes !== rightMinutes) {
+      return leftMinutes - rightMinutes;
+    }
+    return String(left.subject || '').localeCompare(String(right.subject || ''), 'pl');
+  });
 };
 
 const toCrmIsoDate = (dateKey, hhmm, fallbackMinutes = 0) => {
@@ -551,12 +949,11 @@ const toCrmIsoDate = (dateKey, hhmm, fallbackMinutes = 0) => {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 };
 
-export const createCrmTaskActivity = async ({
+const buildCrmTaskActivityBody = ({
   task,
   dateKey,
   employeeName = '',
-  regarding = null,
-  crmAuth = null
+  regarding = null
 }) => {
   const subject = String(task?.subject || '').trim();
   if (!subject) {
@@ -580,10 +977,14 @@ export const createCrmTaskActivity = async ({
     task?.client ? `Klient: ${task.client}` : '',
     task?.kp ? `KP: ${task.kp}` : '',
     task?.status ? `Status w Plannerze: ${task.status}` : '',
-    task?.type ? `Typ: ${task.type}` : ''
+    task?.type ? `Typ: ${task.type}` : '',
+    task?.workKind ? `Rodzaj: ${task.workKind}` : ''
   ].filter(Boolean);
 
-  const body = {
+  const crmActivityKindValue =
+    WORK_KIND_TO_CRM_ACTIVITY_KIND[String(task?.workKind || '').trim()] ?? WORK_KIND_TO_CRM_ACTIVITY_KIND['Zwykłe'];
+
+  return {
     __metadata: { type: 'Microsoft.Crm.Sdk.Data.Services.Task' },
     Subject: subject,
     ...(startIso ? { ScheduledStart: startIso } : {}),
@@ -591,6 +992,9 @@ export const createCrmTaskActivity = async ({
     ...(startIso ? { ActualStart: startIso } : {}),
     ...(endIso ? { ActualEnd: endIso } : {}),
     ...(actualDurationMinutes != null ? { ActualDurationMinutes: actualDurationMinutes } : {}),
+    obx_calculatetime: {
+      Value: crmActivityKindValue
+    },
     ...(details.length ? { Description: details.join('\n') } : {}),
     ...(regarding
       ? {
@@ -602,9 +1006,27 @@ export const createCrmTaskActivity = async ({
         }
       : {})
   };
+};
+
+export const createCrmTaskActivity = async ({
+  task,
+  dateKey,
+  employeeName = '',
+  regarding = null,
+  crmAuth = null,
+  crmScope = 'default'
+}) => {
+  const subject = String(task?.subject || '').trim();
+  const body = buildCrmTaskActivityBody({
+    task,
+    dateKey,
+    employeeName,
+    regarding
+  });
 
   const response = await fetch(`${getCrmProxyBase()}/crm/odata`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json'
     },
@@ -612,7 +1034,7 @@ export const createCrmTaskActivity = async ({
       path: 'TaskSet',
       method: 'POST',
       body,
-      ...buildCrmAuthPayload(crmAuth)
+      ...buildCrmSessionPayload({ crmAuth, crmScope })
     })
   });
 
@@ -632,7 +1054,61 @@ export const createCrmTaskActivity = async ({
   };
 };
 
-export const closeCrmTaskActivity = async (activityId, crmAuth = null) => {
+export const updateCrmTaskActivity = async ({
+  activityId,
+  task,
+  dateKey,
+  employeeName = '',
+  regarding = null,
+  crmAuth = null,
+  crmScope = 'default'
+}) => {
+  const trimmedId = String(activityId || '').trim();
+  if (!trimmedId) {
+    throw new Error('Brak identyfikatora działania CRM do aktualizacji.');
+  }
+
+  const subject = String(task?.subject || '').trim();
+  const body = buildCrmTaskActivityBody({
+    task,
+    dateKey,
+    employeeName,
+    regarding
+  });
+
+  const response = await fetch(`${getCrmProxyBase()}/crm/odata`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      path: `TaskSet(guid'${trimmedId}')`,
+      method: 'POST',
+      headers: {
+        'X-HTTP-Method': 'MERGE'
+      },
+      body,
+      ...buildCrmSessionPayload({ crmAuth, crmScope })
+    })
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      (payload && typeof payload.error === 'string' && payload.error.trim()) ||
+      `Aktualizacja działania CRM zakończyła się błędem (status ${response.status}).`;
+    throw new Error(message);
+  }
+
+  return {
+    activityId: trimmedId,
+    subject,
+    raw: payload?.data?.d ?? payload?.data ?? payload
+  };
+};
+
+export const closeCrmTaskActivity = async (activityId, crmAuth = null, crmScope = 'default') => {
   const trimmedId = String(activityId || '').trim();
   if (!trimmedId) {
     throw new Error('Brak identyfikatora działania CRM do zamknięcia.');
@@ -678,12 +1154,13 @@ export const closeCrmTaskActivity = async (activityId, crmAuth = null) => {
 
   const response = await fetch(`${getCrmProxyBase()}/crm/execute`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
       body: soapBody,
-      ...buildCrmAuthPayload(crmAuth)
+      ...buildCrmSessionPayload({ crmAuth, crmScope })
     })
   });
 
@@ -698,7 +1175,7 @@ export const closeCrmTaskActivity = async (activityId, crmAuth = null) => {
   return payload?.data ?? payload;
 };
 
-export const deleteCrmTaskActivity = async (activityId, crmAuth = null) => {
+export const deleteCrmTaskActivity = async (activityId, crmAuth = null, crmScope = 'default') => {
   const trimmedId = String(activityId || '').trim();
   if (!trimmedId) {
     throw new Error('Brak identyfikatora działania CRM do usunięcia.');
@@ -706,6 +1183,7 @@ export const deleteCrmTaskActivity = async (activityId, crmAuth = null) => {
 
   const response = await fetch(`${getCrmProxyBase()}/crm/odata`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json'
     },
@@ -715,7 +1193,7 @@ export const deleteCrmTaskActivity = async (activityId, crmAuth = null) => {
       headers: {
         'X-HTTP-Method': 'DELETE'
       },
-      ...buildCrmAuthPayload(crmAuth)
+      ...buildCrmSessionPayload({ crmAuth, crmScope })
     })
   });
 
@@ -752,6 +1230,7 @@ export const API = {
   fetchCrmProjects,
   fetchCrmTasksForDate,
   createCrmTaskActivity,
+  updateCrmTaskActivity,
   closeCrmTaskActivity,
   deleteCrmTaskActivity
 };

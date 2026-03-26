@@ -108,7 +108,7 @@ export const allTasksClosed = (items) =>
 
 export const computeDayStatus = (items, plannedMinutes) => {
   if (plannedMinutes > 0 && allTasksClosed(items) && computeReported(items) >= plannedMinutes) {
-    return 'Rozliczone';
+    return 'Rozliczone w CRM';
   }
   return 'W trakcie';
 };

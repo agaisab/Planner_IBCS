@@ -12,6 +12,7 @@ export const TASK_TYPE_COLORS = {
   Biuro: { base: 'bg-emerald-50', dot: 'bg-emerald-500', border: 'border-emerald-300', text: 'text-emerald-800' },
   Zdalnie: { base: 'bg-sky-50', dot: 'bg-sky-500', border: 'border-sky-300', text: 'text-sky-800' },
   Delegacja: { base: 'bg-indigo-50', dot: 'bg-indigo-500', border: 'border-indigo-300', text: 'text-indigo-800' },
+  Przejazd: { base: 'bg-cyan-50', dot: 'bg-cyan-500', border: 'border-cyan-300', text: 'text-cyan-800' },
   Helpdesk: { base: 'bg-lime-50', dot: 'bg-lime-500', border: 'border-lime-300', text: 'text-lime-800' },
   Urlop: { base: 'bg-amber-50', dot: 'bg-amber-500', border: 'border-amber-300', text: 'text-amber-800' },
   L4: { base: 'bg-rose-50', dot: 'bg-rose-500', border: 'border-rose-300', text: 'text-rose-800' },
@@ -25,7 +26,7 @@ export const STATUS_STYLES = {
 
 export const DAY_STATUS_STYLES = {
   'W trakcie': 'bg-amber-50 border-amber-300 text-amber-800',
-  Rozliczone: 'bg-emerald-50 border-emerald-300 text-emerald-700'
+  'Rozliczone w CRM': 'bg-emerald-50 border-emerald-300 text-emerald-700'
 };
 
 export const WORKKIND_STYLES = {

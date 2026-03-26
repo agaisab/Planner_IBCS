@@ -36,6 +36,8 @@ export const useEmployeePlans = (
 
     let cancelled = false;
 
+    setData({ plansByDate: {}, logs: [], loading: true, error: null });
+
     const fetchData = async (showLoading) => {
       if (showLoading) {
         setData((prev) => ({ ...prev, loading: true }));
@@ -78,7 +80,7 @@ export const useEmployeePlans = (
       }
     };
 
-    fetchData(true);
+    fetchData(false);
     refreshRef.current = () => fetchData(true);
 
     return () => {

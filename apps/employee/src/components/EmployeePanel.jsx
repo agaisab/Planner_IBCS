@@ -11,7 +11,6 @@ import {
   CalendarPlus,
   Download,
   Settings,
-  Upload,
   Menu,
   ChevronLeft,
   ChevronRight,
@@ -22,7 +21,9 @@ import {
   Loader2,
   Check,
   Edit3,
-  Plug
+  Plug,
+  LogOut,
+  CarFront
 } from 'lucide-react';
 import {
   cls,
@@ -55,6 +56,7 @@ import {
   fetchCrmProjects,
   fetchCrmTasksForDate,
   createCrmTaskActivity,
+  updateCrmTaskActivity,
   closeCrmTaskActivity,
   deleteCrmTaskActivity,
   isPublicHoliday
@@ -67,8 +69,33 @@ const CARD = 'rounded-2xl border-2 border-slate-300 bg-white shadow-sm p-4';
 const CHIP = 'inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-sm';
 const WEEK_DAYS = ['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'];
 const ABSENCE_TASK_TYPES = ['Urlop', 'L4', 'Nieobecność'];
-const CRM_PROXY_URL = import.meta.env?.VITE_CRM_PROXY_URL || 'http://localhost:5050';
+const CRM_PROXY_URL =
+  import.meta.env?.VITE_CRM_PROXY_URL ||
+  (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:5050` : 'http://localhost:5050');
 const CRM_FIXED_DOMAIN = import.meta.env?.VITE_CRM_DOMAIN || 'bcspol';
+const CRM_SESSION_SCOPE = 'employee-panel';
+const EMPLOYEE_PLAN_CACHE_PREFIX = 'planner_employee_plans_cache:';
+
+const readPlanCache = (prefix, key) => {
+  if (typeof window === 'undefined' || !key) return null;
+  try {
+    const raw = window.sessionStorage.getItem(`${prefix}${key}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const writePlanCache = (prefix, key, value) => {
+  if (typeof window === 'undefined' || !key) return;
+  try {
+    window.sessionStorage.setItem(`${prefix}${key}`, JSON.stringify(value || {}));
+  } catch {
+    /* ignore cache write errors */
+  }
+};
 
 const TASK_STATE_META = {
   SENT: {
@@ -148,6 +175,23 @@ const mergeSubmissionItems = (previous = [], incoming = []) => {
 
   return Array.from(mergedMap.values());
 };
+
+const sortTasksByTime = (items = []) =>
+  [...items].sort((left, right) => {
+    const leftStart = left?.start ? toMinutes(left.start) : Number.POSITIVE_INFINITY;
+    const rightStart = right?.start ? toMinutes(right.start) : Number.POSITIVE_INFINITY;
+    if (leftStart !== rightStart) {
+      return leftStart - rightStart;
+    }
+
+    const leftEnd = left?.end ? toMinutes(left.end) : Number.POSITIVE_INFINITY;
+    const rightEnd = right?.end ? toMinutes(right.end) : Number.POSITIVE_INFINITY;
+    if (leftEnd !== rightEnd) {
+      return leftEnd - rightEnd;
+    }
+
+    return String(left?.id || '').localeCompare(String(right?.id || ''), 'pl');
+  });
 
 function Modal({ open, title, children, actions, onClose }) {
   if (!open) return null;
@@ -338,6 +382,7 @@ function ChipSelect({ value, options, onChange, portal = true, direction = 'auto
   const menuRef = useRef(null);
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0, height: 0 });
   const selectedOption = options.find((o) => o.value === value) || options[0];
+  const SelectedIcon = selectedOption?.Icon || null;
 
   const updatePos = () => {
     const el = btnRef.current;
@@ -392,7 +437,9 @@ function ChipSelect({ value, options, onChange, portal = true, direction = 'auto
           : { minWidth: Math.max(180, btnRef.current?.offsetWidth || 180) }
       }
     >
-      {options.map((o) => (
+      {options.map((o) => {
+        const OptionIcon = o.Icon || null;
+        return (
         <button
           key={o.value}
           onClick={() => {
@@ -403,9 +450,13 @@ function ChipSelect({ value, options, onChange, portal = true, direction = 'auto
             o.value === value ? o.className : 'border-transparent hover:bg-slate-50 text-slate-700'
           } text-[11px]`}
         >
-          <span className={`inline-block h-2 w-2 rounded-full ${o.dot}`} /> {o.label}
+          <span className="inline-flex items-center gap-1.5">
+            {OptionIcon ? <OptionIcon className="h-3 w-3" /> : <span className={`inline-block h-2 w-2 rounded-full ${o.dot}`} />}
+            {o.label}
+          </span>
         </button>
-      ))}
+        );
+      })}
     </div>
   );
 
@@ -418,7 +469,8 @@ function ChipSelect({ value, options, onChange, portal = true, direction = 'auto
         onClick={() => !disabled && setOpen((o) => !o)}
         className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs ${selectedOption.className} disabled:opacity-50 disabled:cursor-not-allowed`}
       >
-        <span className={`inline-block h-2 w-2 rounded-full ${selectedOption.dot}`} /> {selectedOption.label}
+        {SelectedIcon ? <SelectedIcon className="h-3.5 w-3.5" /> : <span className={`inline-block h-2 w-2 rounded-full ${selectedOption.dot}`} />}
+        {selectedOption.label}
         <ChevronDown className="w-3 h-3" />
       </button>
       {open &&
@@ -433,7 +485,7 @@ function ChipSelect({ value, options, onChange, portal = true, direction = 'auto
   );
 }
 
-function ModeChooser({ value, onChange }) {
+function ModeChooser({ value, onChange, disabled = false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const meta = MODE_META[value] || MODE_META.OFFICE;
@@ -450,8 +502,9 @@ function ModeChooser({ value, onChange }) {
     <div ref={ref} className="mt-1 relative">
       <button
         type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className={`${CHIP} ${meta.base} ${meta.border} ${meta.text}`}
+        onClick={() => !disabled && setOpen((prev) => !prev)}
+        className={`${CHIP} ${meta.base} ${meta.border} ${meta.text} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+        disabled={disabled}
       >
         <span className={`inline-block h-2 w-2 rounded-full ${meta.dot}`} /> {meta.label}
         <ChevronDown className="w-3 h-3" />
@@ -465,6 +518,7 @@ function ModeChooser({ value, onChange }) {
               <button
                 key={key}
                 onClick={() => {
+                  if (disabled) return;
                   onChange(key);
                   setOpen(false);
                 }}
@@ -512,7 +566,7 @@ function StatusChooser({ value, onChange, disabled }) {
   );
 }
 
-function CrmProjectSelect({ value, onChange, onSelectOption, options, disabled, loading }) {
+function CrmProjectSelect({ value, fullValue, onChange, onSelectOption, options, disabled, loading }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [highlightIndex, setHighlightIndex] = useState(-1);
@@ -774,6 +828,7 @@ function CrmProjectSelect({ value, onChange, onSelectOption, options, disabled, 
         onChange={handleInputChange}
         onFocus={() => !disabled && setOpen(true)}
         onKeyDown={handleInputKeyDown}
+        title={fullValue || value || ''}
         className={cls(
           'w-full rounded-lg border-2 border-slate-300 px-2 py-1 pr-9',
           disabled && 'bg-slate-100 text-slate-500'
@@ -889,14 +944,14 @@ const TaskRow = memo(function TaskRow({
   onLock,
   onUnlock,
   onExport,
-  onSendToCrm,
   onDelete,
+  onEditStart,
   computeWorkKind,
   crmProjectsLoading,
   crmProjects,
   previousTask,
   nextTask,
-  crmSending
+  readOnly = false
 }) {
   const stateKey = task._syncState || 'EDITED';
   const stateMeta = TASK_STATE_META[stateKey] || TASK_STATE_META.EDITED;
@@ -904,7 +959,12 @@ const TaskRow = memo(function TaskRow({
   const menuOpen = activeTaskId === task.id;
   const isAbsenceType = ABSENCE_TASK_TYPES.includes(task.type);
   const workKind = isAbsenceType ? 'Zwykłe' : computeWorkKind(task);
-  const previousTaskEnd = previousTask?.end || '';
+  const isNewUnsavedTask =
+    !task.locked &&
+    !task.crmActivityId &&
+    !String(task.subject || '').trim() &&
+    !String(task.project || '').trim();
+  const previousTaskEnd = isNewUnsavedTask ? '' : previousTask?.end || '';
   const nextTaskStart = nextTask?.start || '';
   const startMaxValue = task.end
     ? minutesToHHmm(Math.max(toMinutes(previousTaskEnd || '00:00'), toMinutes(task.end) - 15))
@@ -916,11 +976,15 @@ const TaskRow = memo(function TaskRow({
   );
 
   return (
-    <tr className="border-t border-slate-200">
+    <tr
+      className="border-t border-slate-200"
+      data-task-row-id={task.id}
+      onFocusCapture={() => !readOnly && onEditStart(task.id)}
+    >
       <td className="p-2 align-middle text-center">
         <button
           type="button"
-          onClick={() => onToggleSelect(task.id)}
+          onClick={() => !readOnly && onToggleSelect(task.id)}
           className={cls(
             'inline-flex items-center justify-center h-6 w-6 rounded-full border-2 transition-all shadow-sm focus:outline-none focus:ring-1 focus:ring-sky-400 focus:ring-offset-2',
             selected
@@ -929,28 +993,31 @@ const TaskRow = memo(function TaskRow({
           )}
           aria-pressed={selected}
           aria-label={selected ? 'Odznacz zadanie' : 'Zaznacz zadanie'}
+          disabled={readOnly}
         >
           {selected ? <Check className="w-3 h-3" /> : <span className="block h-2 w-2 rounded-full bg-slate-400" />}
         </button>
       </td>
       <td className="p-2">
-        <TaskTypeChooser value={task.type} onChange={(value) => onFieldChange(task.id, { type: value })} disabled={task.locked} />
+        <TaskTypeChooser value={task.type} onChange={(value) => onFieldChange(task.id, { type: value })} disabled={readOnly || task.locked} />
       </td>
-      <td className="p-2">
+      <td className="p-2 min-w-[305px]">
         <input
           value={task.subject}
           onChange={(e) => onFieldChange(task.id, { subject: e.target.value })}
           className="w-full rounded-lg border-2 border-slate-300 px-2 py-1"
           placeholder="np. Raport"
-          disabled={task.locked || isAbsenceType}
+          disabled={readOnly || task.locked || isAbsenceType}
         />
       </td>
-      <td className="p-2 min-w-[320px]">
+      <td className="p-2 min-w-[150px]">
         <CrmProjectSelect
           value={task.project}
+          fullValue={task.projectFullLabel || task.crmRegarding?.label || task.project}
           onChange={(next) =>
             onFieldChange(task.id, {
               project: next,
+              projectFullLabel: '',
               crmRegarding: null
             })}
           onSelectOption={(option, label) => {
@@ -958,6 +1025,7 @@ const TaskRow = memo(function TaskRow({
             const kpName = option.ownerName || '';
             onFieldChange(task.id, {
               project: label,
+              projectFullLabel: option.label || label,
               client: customerName,
               kp: kpName,
               crmRegarding: {
@@ -974,7 +1042,7 @@ const TaskRow = memo(function TaskRow({
             });
           }}
           options={crmProjects}
-          disabled={task.locked || isAbsenceType}
+          disabled={readOnly || task.locked || isAbsenceType}
           loading={crmProjectsLoading}
         />
       </td>
@@ -982,7 +1050,7 @@ const TaskRow = memo(function TaskRow({
         <TimeSelect
           value={task.start}
           onChange={(value) => onFieldChange(task.id, { start: value })}
-          disabled={task.locked || isAbsenceType}
+          disabled={readOnly || task.locked || isAbsenceType}
           minValue={previousTaskEnd}
           maxValue={startMaxValue}
         />
@@ -991,19 +1059,25 @@ const TaskRow = memo(function TaskRow({
         <TimeSelect
           value={task.end}
           onChange={(value) => onFieldChange(task.id, { end: value })}
-          disabled={task.locked || isAbsenceType}
+          disabled={readOnly || task.locked || isAbsenceType}
           minValue={endMinValue}
           maxValue={nextTaskStart}
         />
       </td>
       <td className="p-2">
-        <span className={`${CHIP} ${WORKKIND_STYLES[workKind]}`}>{workKind}</span>
+        {task.type === 'Przejazd' ? (
+          <span className={`${CHIP} w-20 justify-center bg-violet-50 border-violet-300 text-violet-800`} title="Przejazd">
+            <CarFront className="h-4 w-4" />
+          </span>
+        ) : (
+          <span className={`${CHIP} w-20 justify-center ${WORKKIND_STYLES[workKind]}`}>{workKind}</span>
+        )}
       </td>
       <td className="p-2">
         <StatusChooser
           value={task.status || 'Planowane'}
           onChange={(value) => onFieldChange(task.id, { status: value })}
-          disabled={task.locked || isAbsenceType}
+          disabled={readOnly || task.locked || isAbsenceType}
         />
       </td>
       <td className="p-2">
@@ -1020,9 +1094,10 @@ const TaskRow = memo(function TaskRow({
       <td className="relative p-2 text-right">
         <button
           ref={actionRef}
-          onClick={() => onToggleMenu(task.id)}
+          onClick={() => !readOnly && onToggleMenu(task.id)}
           className="rounded-lg border-2 border-slate-300 p-2 hover:bg-slate-50"
           title="Akcje"
+          disabled={readOnly}
         >
           <Settings className="w-4 h-4" />
         </button>
@@ -1055,14 +1130,6 @@ const TaskRow = memo(function TaskRow({
                 className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-slate-50"
               >
                 <CalendarPlus className="w-4 h-4" /> Do Outlooka
-              </button>
-              <button
-                data-task-actions-menu
-                onClick={() => onSendToCrm(task)}
-                disabled={crmSending}
-                className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
-              >
-                {crmSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Wyślij do CRM
               </button>
             </div>,
             document.body
@@ -1222,7 +1289,7 @@ function EmployeeCalendar({ monthStart, selectedDate, setSelectedDate, statusByD
   );
 }
 
-export default function EmployeePanel() {
+export default function EmployeePanel({ employeeProfile = null, onEmployeeProfileChange = null, onRequireLogin = null }) {
   const {
     managers,
     employees,
@@ -1261,21 +1328,12 @@ export default function EmployeePanel() {
   const [crmProjects, setCrmProjects] = useState([]);
   const [crmProjectsLoading, setCrmProjectsLoading] = useState(false);
   const [crmProjectsError, setCrmProjectsError] = useState('');
-  const [crmSendingTaskId, setCrmSendingTaskId] = useState(null);
   const [crmImportingTasks, setCrmImportingTasks] = useState(false);
-  const crmAuth = useMemo(
-    () =>
-      crmConnected
-        ? {
-            login: crmCredentials.login.trim(),
-            password: crmCredentials.password,
-            domain: CRM_FIXED_DOMAIN
-          }
-        : null,
-    [crmConnected, crmCredentials.login, crmCredentials.password]
-  );
+  const fixedEmployeeProfile = !!employeeProfile?.id;
+  const ownEmployeeId = employeeProfile?.id || null;
+  const ownSelectionInitializedRef = useRef(false);
   const refreshCrmProjects = useCallback(async () => {
-    if (!crmAuth?.login || !crmAuth?.password) {
+    if (!crmConnected) {
       setCrmProjects([]);
       setCrmProjectsError('');
       setCrmProjectsLoading(false);
@@ -1284,7 +1342,7 @@ export default function EmployeePanel() {
     setCrmProjectsLoading(true);
     setCrmProjectsError('');
     try {
-      const items = await fetchCrmProjects(crmAuth);
+      const items = await fetchCrmProjects(null, CRM_SESSION_SCOPE);
       setCrmProjects(items);
     } catch (err) {
       setCrmProjects([]);
@@ -1292,7 +1350,7 @@ export default function EmployeePanel() {
     } finally {
       setCrmProjectsLoading(false);
     }
-  }, [crmAuth]);
+  }, [crmConnected]);
 
   const handleCrmSubmit = useCallback(
     async (event) => {
@@ -1310,10 +1368,12 @@ export default function EmployeePanel() {
       try {
         const response = await fetch(`${CRM_PROXY_URL}/crm/login`, {
           method: 'POST',
+          credentials: 'include',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
+            scope: CRM_SESSION_SCOPE,
             login: trimmedLogin,
             password: crmCredentials.password,
             domain: CRM_FIXED_DOMAIN
@@ -1331,6 +1391,7 @@ export default function EmployeePanel() {
           login: payload?.user || trimmedLogin,
           domain: CRM_FIXED_DOMAIN
         });
+        setCrmCredentials((prev) => ({ ...prev, password: '' }));
         setCrmError('');
         setCrmModalOpen(false);
       } catch (err) {
@@ -1351,6 +1412,66 @@ export default function EmployeePanel() {
     [crmCredentials, crmLoading]
   );
 
+  const handleCrmLogout = useCallback(async () => {
+    try {
+      await fetch(`${CRM_PROXY_URL}/crm/session/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          scope: CRM_SESSION_SCOPE
+        })
+      });
+    } catch {
+      /* ignore logout transport errors and clear local state */
+    } finally {
+      setActionsMenuOpen(false);
+      setCrmModalOpen(false);
+      setCrmConnected(false);
+      setCrmUser(null);
+      setCrmProjects([]);
+      setCrmProjectsError('');
+      setCrmLoading(false);
+      setCrmError('');
+      setCrmCredentials((prev) => ({ ...prev, password: '' }));
+      if (typeof onRequireLogin === 'function') {
+        onRequireLogin();
+      }
+    }
+  }, [onRequireLogin]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await fetch(`${CRM_PROXY_URL}/crm/session/status?scope=${encodeURIComponent(CRM_SESSION_SCOPE)}`, {
+          credentials: 'include'
+        });
+        const payload = await response.json().catch(() => null);
+        if (!active || !response.ok) return;
+        if (payload?.connected) {
+          setCrmConnected(true);
+          setCrmUser({
+            login: payload?.user || '',
+            domain: payload?.domain || CRM_FIXED_DOMAIN
+          });
+        } else {
+          setCrmConnected(false);
+          setCrmUser(null);
+        }
+      } catch {
+        if (!active) return;
+        setCrmConnected(false);
+        setCrmUser(null);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   useEffect(() => {
     setLoadingInitial(loadingDirectory);
   }, [loadingDirectory]);
@@ -1360,12 +1481,56 @@ export default function EmployeePanel() {
   }, [directoryError]);
 
   useEffect(() => {
+    ownSelectionInitializedRef.current = false;
+  }, [employeeProfile?.id]);
+
+  useEffect(() => {
+    if (!fixedEmployeeProfile || ownSelectionInitializedRef.current) {
+      return;
+    }
+    const resolvedManager = managers.find((manager) => manager.id === employeeProfile?.managerId) || null;
+    const ownEmployee = employees.find((employee) => employee.id === employeeProfile?.id) || employeeProfile || null;
+    if (!resolvedManager?.id || !ownEmployee?.id) {
+      return;
+    }
+    ownSelectionInitializedRef.current = true;
+    setSelectedManager(resolvedManager);
+    setSelectedEmployee(ownEmployee);
+  }, [employeeProfile, employees, fixedEmployeeProfile, managers]);
+
+  useEffect(() => {
+    if (fixedEmployeeProfile) {
+      const resolvedManager = managers.find((manager) => manager.id === employeeProfile?.managerId) || null;
+      if (!selectedManager?.id && resolvedManager?.id) {
+        setSelectedManager(resolvedManager);
+      }
+      return;
+    }
     if (!selectedManager && managers.length) {
       setSelectedManager(managers[0]);
     }
-  }, [managers, selectedManager]);
+  }, [employeeProfile?.managerId, fixedEmployeeProfile, managers, selectedManager]);
 
   useEffect(() => {
+    if (fixedEmployeeProfile) {
+      const ownEmployee = employees.find((employee) => employee.id === employeeProfile?.id) || employeeProfile || null;
+      if (!selectedEmployee?.id && ownEmployee?.id) {
+        setSelectedEmployee(ownEmployee);
+        return;
+      }
+      if (
+        typeof onEmployeeProfileChange === 'function' &&
+        ownEmployee?.id &&
+        JSON.stringify(ownEmployee) !== JSON.stringify(employeeProfile)
+      ) {
+        onEmployeeProfileChange(ownEmployee);
+      }
+      if (!selectedManager) {
+        setSelectedEmployee(null);
+        return;
+      }
+      return;
+    }
     if (!selectedManager) {
       setSelectedEmployee(null);
       return;
@@ -1378,7 +1543,7 @@ export default function EmployeePanel() {
     if (!selectedEmployee || selectedEmployee.managerId !== selectedManager.id) {
       setSelectedEmployee(managed[0]);
     }
-  }, [selectedManager, employees, selectedEmployee]);
+  }, [employeeProfile, employees, fixedEmployeeProfile, onEmployeeProfileChange, selectedEmployee?.id, selectedManager?.id]);
 
   const {
     plansByDate: hookPlansByDate,
@@ -1396,7 +1561,21 @@ export default function EmployeePanel() {
 
   useEffect(() => {
     if (selectedEmployee?.id) {
+      const cachedPlans = readPlanCache(EMPLOYEE_PLAN_CACHE_PREFIX, selectedEmployee.id);
+      if (cachedPlans) {
+        setPlansByDate(cachedPlans);
+      } else {
+        setPlansByDate({});
+      }
+      setMonthlyLogs([]);
+      setLoadingPlans(true);
+    }
+  }, [selectedEmployee?.id]);
+
+  useEffect(() => {
+    if (selectedEmployee?.id) {
       setPlansByDate((prev) => (deepEqual(prev, hookPlansByDate) ? prev : hookPlansByDate));
+      writePlanCache(EMPLOYEE_PLAN_CACHE_PREFIX, selectedEmployee.id, hookPlansByDate);
       setMonthlyLogs((prev) => (deepEqual(prev, hookLogs) ? prev : hookLogs));
       setLoadingPlans(hookLoading);
       setError(hookError);
@@ -1541,6 +1720,7 @@ export default function EmployeePanel() {
         .map((e) => ({ id: e.id, name: e.name, subtitle: `${e.role} • ${e.employmentType}` })),
     [employees, selectedManager?.id]
   );
+  const isViewingOwnProfile = !ownEmployeeId || selectedEmployee?.id === ownEmployeeId;
 
   const createDraft = (plan) =>
     plan
@@ -1597,6 +1777,14 @@ export default function EmployeePanel() {
     },
     []
   );
+  useEffect(() => {
+    editingTaskIdRef.current = null;
+    setSelectedTaskIds([]);
+    setTaskActionsMenu({ id: null, rect: null });
+    setOutlookMenu({ task: null, anchor: null });
+    setSplitPrompt(null);
+    setSplitProcessing(false);
+  }, [selectedEmployee?.id, dKey]);
   const reconcileTasksAfterPlanChange = useCallback(
     (items) => {
       const planStartMinutesSpan = spanStart ? toMinutes(spanStart) : null;
@@ -1616,6 +1804,16 @@ export default function EmployeePanel() {
 
       (items || []).forEach((task) => {
         if (!task) return;
+        if (task.type === 'Przejazd') {
+          const wk = computeKind(task);
+          if ((task.workKind || '') !== wk) {
+            changed = true;
+            segmented.push({ ...task, workKind: wk });
+          } else {
+            segmented.push(task);
+          }
+          return;
+        }
         if (!task.start || !task.end) {
           const wk = computeKind(task);
           if ((task.workKind || '') !== wk) {
@@ -2006,6 +2204,7 @@ export default function EmployeePanel() {
 
   const taskItems = useMemo(() => subDraft.items || [], [subDraft.items]);
   const [selectedTaskIds, setSelectedTaskIds] = useState([]);
+  const editingTaskIdRef = useRef(null);
   useEffect(() => {
     if (!taskItems.length) {
       setSelectedTaskIds([]);
@@ -2178,12 +2377,13 @@ export default function EmployeePanel() {
 
       return {
         ...prev,
-        items: [...marked, newTask]
+        items: sortTasksByTime([...marked, newTask])
       };
     });
   }, [shifts]);
 
-  const importPlanFallbackToTasks = useCallback(() => {
+  const importPlanFallbackToTasks = useCallback(async () => {
+    const requestContext = { employeeId: selectedEmployee?.id ?? null, dateKey: dKey };
     const segments = (shifts || []).filter((segment) => segment.start && segment.end);
     if (!segments.length) return;
     const nowBase = Date.now();
@@ -2200,26 +2400,42 @@ export default function EmployeePanel() {
         end: segment.end,
         workKind: 'Zwykłe',
         status: 'Planowane',
-        locked: false,
+        locked: true,
         sent: false,
-        _syncState: 'EDITED'
+        _syncState: 'DRAFT',
+        prevSyncState: 'DRAFT'
       };
     });
-    setSubDraft((prev) => ({
-      status: prev.status || 'DRAFT',
-      dayStatus: prev.dayStatus || 'W trakcie',
+    if (isStaleContext(requestContext)) return;
+    setSubDraft(() => ({
+      status: 'DRAFT',
+      dayStatus: computeDayStatus(generated, planned),
       items: generated
     }));
-  }, [shifts]);
+    try {
+      const savedSubmission = await persistTaskDraft(generated);
+      if (savedSubmission && !isStaleContext(requestContext)) {
+        setSubDraft((prev) => ({
+          ...prev,
+          ...savedSubmission,
+          status: savedSubmission.status || 'DRAFT',
+          items: normalizeTaskStates(savedSubmission.items || generated, 'DRAFT')
+        }));
+      }
+    } catch (err) {
+      console.error('[employee] Plan import save failed', err);
+    }
+  }, [dKey, isStaleContext, persistTaskDraft, planned, selectedEmployee?.id, shifts]);
 
   const importPlanToTasks = useCallback(async () => {
-    const fallbackImport = () => importPlanFallbackToTasks();
+    const requestContext = { employeeId: selectedEmployee?.id ?? null, dateKey: dKey };
+    const fallbackImport = async () => importPlanFallbackToTasks();
     if (!selectedEmployee || crmImportingTasks) {
-      fallbackImport();
+      await fallbackImport();
       return;
     }
-    if (!crmAuth?.login || !crmAuth?.password) {
-      fallbackImport();
+    if (!crmConnected) {
+      await fallbackImport();
       return;
     }
 
@@ -2227,8 +2443,12 @@ export default function EmployeePanel() {
     try {
       const crmItems = await fetchCrmTasksForDate({
         dateKey: dKey,
-        ownerName: selectedEmployee?.name || selectedEmployee?.fullName || '',
-        crmAuth
+        ownerName: [
+          selectedEmployee?.name || selectedEmployee?.fullName || '',
+          selectedEmployee?.crmLogin || '',
+          crmUser?.login || ''
+        ],
+        crmScope: CRM_SESSION_SCOPE
       });
 
       if (!crmItems.length) {
@@ -2236,8 +2456,18 @@ export default function EmployeePanel() {
         return;
       }
 
+      if (isStaleContext(requestContext)) return;
+
       const generated = crmItems.map((item, idx) => {
         const regardingReference = item.regarding;
+        const normalizedSubject = String(item.subject || '').trim().toLowerCase();
+        const derivedCrmType =
+          item.plannerDetails?.type ||
+          (normalizedSubject.startsWith('dp ') || normalizedSubject.startsWith('dp -')
+            ? 'Przejazd'
+            : normalizedSubject.startsWith('tr ') || normalizedSubject.startsWith('tr -')
+            ? 'Delegacja'
+            : 'Biuro');
         const crmMatch = regardingReference
           ? crmProjects.find((crmItem) => {
               const candidateId =
@@ -2247,27 +2477,38 @@ export default function EmployeePanel() {
               return candidateId && candidateId === String(regardingReference.id || '').trim();
             }) || null
           : null;
+        const projectShortLabel =
+          crmMatch?.category === 'project'
+            ? String(crmMatch.displayTitle || crmMatch.titleInternal || crmMatch.label || '')
+                .split(' - ')[0]
+                .trim()
+            : '';
+        const projectLabel =
+          crmMatch?.category === 'project'
+            ? [crmMatch.number, projectShortLabel].filter(Boolean).join(' - ')
+            : crmMatch?.label || regardingReference?.name || '';
+        const projectFullLabel = crmMatch?.label || regardingReference?.name || projectLabel;
+        const isClosedInCrm =
+          item.recordType === 'travel' ||
+          Number(item.stateCode) === 1 ||
+          (item.recordType !== 'travel' && Number(item.statusCode) === 5);
 
         return {
           id: `crm-import-${item.activityId || `${Date.now()}-${idx}`}`,
-          type: item.plannerDetails?.type || 'Biuro',
+          type: derivedCrmType,
           subject: item.subject,
           client: item.plannerDetails?.client || '',
           kp: item.plannerDetails?.kp || '',
-          project:
-            crmMatch?.label ||
-            regardingReference?.name ||
-            '',
+          project: projectLabel,
+          projectFullLabel,
           start: item.start || '',
           end: item.end || '',
-          workKind: 'Zwykłe',
-          status:
-            Number(item.stateCode) === 1 || Number(item.statusCode) === 5
-              ? 'Zakończone'
-              : item.plannerDetails?.plannerStatus || 'Planowane',
-          locked: false,
+          workKind: item.crmWorkKind || 'Zwykłe',
+          status: isClosedInCrm ? 'Zakończone' : item.plannerDetails?.plannerStatus || 'Planowane',
+          locked: true,
           sent: false,
-          _syncState: 'EDITED',
+          _syncState: 'DRAFT',
+          prevSyncState: 'DRAFT',
           crmActivityId: item.activityId,
           crmSyncedAt: new Date().toISOString(),
           crmClosePending: false,
@@ -2282,18 +2523,36 @@ export default function EmployeePanel() {
         };
       });
 
-      setSubDraft((prev) => ({
-        status: prev.status || 'DRAFT',
-        dayStatus: prev.dayStatus || 'W trakcie',
+      if (isStaleContext(requestContext)) return;
+      setSubDraft(() => ({
+        status: 'DRAFT',
+        dayStatus: computeDayStatus(generated, planned),
         items: generated
       }));
+      try {
+        const savedSubmission = await persistTaskDraft(generated);
+        if (savedSubmission && !isStaleContext(requestContext)) {
+          setSubDraft((prev) => ({
+            ...prev,
+            ...savedSubmission,
+            status: savedSubmission.status || 'DRAFT',
+            items: normalizeTaskStates(savedSubmission.items || generated, 'DRAFT')
+          }));
+        }
+      } catch (saveErr) {
+        console.error('[employee] CRM import save failed', saveErr);
+      }
     } catch (err) {
       console.error('[employee] CRM import failed, fallback to local plan import', err);
-      fallbackImport();
+      if (!isStaleContext(requestContext)) {
+        await fallbackImport();
+      }
     } finally {
-      setCrmImportingTasks(false);
+      if (!isStaleContext(requestContext)) {
+        setCrmImportingTasks(false);
+      }
     }
-  }, [crmAuth, crmImportingTasks, crmProjects, dKey, importPlanFallbackToTasks, selectedEmployee]);
+  }, [crmConnected, crmImportingTasks, crmProjects, crmUser?.login, dKey, importPlanFallbackToTasks, isStaleContext, persistTaskDraft, planned, selectedEmployee]);
 
   const setTask = useCallback(
     (id, patch) =>
@@ -2313,6 +2572,69 @@ export default function EmployeePanel() {
         })
       })),
     []
+  );
+
+  const saveTaskDraftById = useCallback(
+    async (id) => {
+      const requestContext = { employeeId: selectedEmployee?.id ?? null, dateKey: dKey };
+      const previousItems = taskItems.map((item) => ({ ...item }));
+      const targetTask = previousItems.find((item) => item.id === id);
+      if (!targetTask || targetTask.locked || targetTask._syncState !== 'EDITED') return;
+
+      const nextItems = previousItems.map((item) => {
+        if (item.id !== id) return item;
+        return {
+          ...item,
+          locked: true,
+          _syncState: 'DRAFT',
+          prevSyncState: 'DRAFT',
+          sent: false
+        };
+      });
+
+      setSubDraft((prev) => ({
+        ...prev,
+        items: nextItems
+      }));
+
+      try {
+        const savedSubmission = await persistTaskDraft(nextItems);
+        if (savedSubmission && !isStaleContext(requestContext)) {
+          setSubDraft((prev) => {
+            const mergedItems = mergeSubmissionItems(prev.items || [], savedSubmission.items || []);
+            const nextStatus =
+              savedSubmission.status ||
+              (mergedItems.every((task) => task._syncState === 'SENT') ? 'SUBMITTED' : 'DRAFT');
+            return {
+              ...prev,
+              ...savedSubmission,
+              status: nextStatus,
+              items: mergedItems
+            };
+          });
+        }
+      } catch (err) {
+        console.error(err);
+        if (!isStaleContext(requestContext)) {
+          setSubDraft((prev) => ({
+            ...prev,
+            items: previousItems
+          }));
+        }
+      }
+    },
+    [dKey, isStaleContext, persistTaskDraft, selectedEmployee?.id, taskItems]
+  );
+
+  const handleTaskEditStart = useCallback(
+    (id) => {
+      const previousEditingId = editingTaskIdRef.current;
+      if (previousEditingId && previousEditingId !== id) {
+        void saveTaskDraftById(previousEditingId);
+      }
+      editingTaskIdRef.current = id;
+    },
+    [saveTaskDraftById]
   );
 
   const buildCalendarDetails = useCallback(
@@ -2556,11 +2878,12 @@ Status: ${task.status || '-'}`;
           return;
         }
         const subjectFilled = (preview.subject || '').trim().length > 0;
-        const clientFilled = (preview.client || '').trim().length > 0;
-        const projectFilled = (preview.project || '').trim().length > 0;
-        if (!subjectFilled || !clientFilled || !projectFilled) {
+        const regardingFilled =
+          (preview.project || '').trim().length > 0 ||
+          (preview.crmRegarding?.id && preview.crmRegarding?.logicalName);
+        if (!subjectFilled || !regardingFilled) {
           if (typeof window !== 'undefined') {
-            window.alert('Aby oznaczyć zadanie jako zakończone, uzupełnij pola Temat, Klient i Dotyczy.');
+            window.alert('Aby oznaczyć zadanie jako zakończone, uzupełnij pola Temat i Dotyczy.');
           }
           return;
         }
@@ -2573,6 +2896,7 @@ Status: ${task.status || '-'}`;
       }
 
       const nextTask = { ...targetTask, ...patch };
+      const isTravelTask = (nextTask.type || '') === 'Przejazd';
       const nightBoundaryMinutes = 22 * 60;
       const nightEarlyBoundaryMinutes = 6 * 60;
       const splitByNightBoundaries = (taskToSplit) => {
@@ -2611,7 +2935,7 @@ Status: ${task.status || '-'}`;
         startMinutes < endMinutes &&
         startMinutes < planStartMinutesSpan;
 
-      if (crossesPlanStart) {
+      if (!isTravelTask && crossesPlanStart) {
         const boundaries = [];
         if (startMinutes < nightEarlyBoundaryMinutes && endMinutes > nightEarlyBoundaryMinutes) {
           boundaries.push(nightEarlyBoundaryMinutes);
@@ -2691,7 +3015,7 @@ Status: ${task.status || '-'}`;
         startMinutes < planEndMinutesSpan &&
         endMinutes > planEndMinutesSpan;
 
-      if (crossesOvertime) {
+      if (!isTravelTask && crossesOvertime) {
         let shouldSplitOvertime = true;
         if (typeof window !== 'undefined') {
           const message = [
@@ -2743,7 +3067,7 @@ Status: ${task.status || '-'}`;
         startMinutes < nightBoundaryMinutes &&
         endMinutes > nightBoundaryMinutes;
 
-      if (crossesNight) {
+      if (!isTravelTask && crossesNight) {
         const baseKind = computeWorkKindFor(nextTask, selectedDate, shifts);
         if (baseKind === 'Nocne' || baseKind === '+ 50%') {
           const timestamp = Date.now();
@@ -2826,7 +3150,7 @@ Status: ${task.status || '-'}`;
         const gapStart = minutesToHHmm(gapStartMinutes);
         const gapEnd = minutesToHHmm(gapEndMinutes);
         const message = `Pozostał wolny czas od ${gapStart} do ${gapEnd}. Czy dodać nowe zadanie?`;
-        shouldAddFollowup = window.confirm(message);
+        shouldAddFollowup = !isTravelTask && window.confirm(message);
       }
 
       setSubDraft((prev) => {
@@ -2859,7 +3183,7 @@ Status: ${task.status || '-'}`;
           }
         }
 
-        return { ...prev, items: updatedItems };
+        return { ...prev, items: sortTasksByTime(updatedItems) };
       });
     },
     [setTask, shifts, taskItems, setSubDraft, selectedDate, spanEnd]
@@ -2867,6 +3191,7 @@ Status: ${task.status || '-'}`;
 
   const deleteTasksByIds = useCallback(
     async (ids) => {
+      const requestContext = { employeeId: selectedEmployee?.id ?? null, dateKey: dKey };
       const existingIds = new Set(taskItems.map((item) => item.id));
       const uniqueIds = [...new Set(ids)].filter((taskId) => existingIds.has(taskId));
       if (!uniqueIds.length) return;
@@ -2876,7 +3201,7 @@ Status: ${task.status || '-'}`;
         .filter(Boolean);
 
       if (crmActivityIds.length) {
-        if (!crmAuth?.login || !crmAuth?.password) {
+        if (!crmConnected) {
           const message = 'Aby usunąć powiązane zadanie z CRM, zaloguj się do CRM w panelu pracownika.';
           setError(message);
           if (typeof window !== 'undefined') {
@@ -2885,7 +3210,7 @@ Status: ${task.status || '-'}`;
           return;
         }
         try {
-          await Promise.all(crmActivityIds.map((activityId) => deleteCrmTaskActivity(activityId, crmAuth)));
+          await Promise.all(crmActivityIds.map((activityId) => deleteCrmTaskActivity(activityId, null, CRM_SESSION_SCOPE)));
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           setError(message);
@@ -2904,16 +3229,18 @@ Status: ${task.status || '-'}`;
       const hasSentAfterDelete = remaining.some((task) => task._syncState === 'SENT');
       const nextDayStatus = remaining.length ? computeDayStatus(remaining, planned) : 'W trakcie';
       const nextStatus = hasSentAfterDelete ? 'SUBMITTED' : 'DRAFT';
-      setSubDraft((prev) => ({
-        ...prev,
-        status: nextStatus,
-        dayStatus: nextDayStatus,
-        items: remaining
-      }));
-      setSelectedTaskIds((prev) => prev.filter((itemId) => !removalSet.has(itemId)));
+      if (!isStaleContext(requestContext)) {
+        setSubDraft((prev) => ({
+          ...prev,
+          status: nextStatus,
+          dayStatus: nextDayStatus,
+          items: remaining
+        }));
+        setSelectedTaskIds((prev) => prev.filter((itemId) => !removalSet.has(itemId)));
+      }
       try {
         const savedSubmission = await persistTaskDraft(remaining);
-        if (savedSubmission) {
+        if (savedSubmission && !isStaleContext(requestContext)) {
           setSubDraft((prev) => {
             const mergedItems = mergeSubmissionItems(prev.items || [], savedSubmission.items || []);
             const nextStatus = savedSubmission.status || (mergedItems.every((task) => task._syncState === 'SENT') ? 'SUBMITTED' : 'DRAFT');
@@ -2929,11 +3256,12 @@ Status: ${task.status || '-'}`;
         console.error(err);
       }
     },
-    [crmAuth, planned, persistTaskDraft, setError, taskItems]
+    [crmConnected, dKey, isStaleContext, planned, persistTaskDraft, selectedEmployee?.id, setError, taskItems]
   );
 
   const handleTaskLock = useCallback(
     async (id) => {
+      const requestContext = { employeeId: selectedEmployee?.id ?? null, dateKey: dKey };
       const previousItems = taskItems.map((item) => ({ ...item }));
       const nextItems = previousItems.map((item) => {
         if (item.id !== id) return item;
@@ -2955,7 +3283,7 @@ Status: ${task.status || '-'}`;
 
       try {
         const savedSubmission = await persistTaskDraft(nextItems);
-        if (savedSubmission) {
+        if (savedSubmission && !isStaleContext(requestContext)) {
           setSubDraft((prev) => {
             const mergedItems = mergeSubmissionItems(prev.items || [], savedSubmission.items || []);
             const nextStatus = savedSubmission.status || (mergedItems.every((task) => task._syncState === 'SENT') ? 'SUBMITTED' : 'DRAFT');
@@ -2969,13 +3297,15 @@ Status: ${task.status || '-'}`;
         }
       } catch (err) {
         console.error(err);
-        setSubDraft((prev) => ({
-          ...prev,
-          items: previousItems
-        }));
+        if (!isStaleContext(requestContext)) {
+          setSubDraft((prev) => ({
+            ...prev,
+            items: previousItems
+          }));
+        }
       }
     },
-    [taskItems, persistTaskDraft, closeTaskActions]
+    [closeTaskActions, dKey, isStaleContext, persistTaskDraft, selectedEmployee?.id, taskItems]
   );
 
   const handleTaskUnlock = useCallback(
@@ -2994,22 +3324,16 @@ Status: ${task.status || '-'}`;
     [deleteTasksByIds, closeTaskActions]
   );
 
-  const handleTaskSendToCrm = useCallback(
+  const syncTaskToCrm = useCallback(
     async (task) => {
       if (!task) return;
-      if (!crmAuth?.login || !crmAuth?.password) {
-        if (typeof window !== 'undefined') {
-          window.alert('Aby wysłać działanie do CRM, zaloguj się do CRM w panelu pracownika.');
-        }
-        return;
+      if (!crmConnected) {
+        throw new Error('Aby wysłać zadania, zaloguj się do CRM w panelu pracownika.');
       }
 
       const subject = String(task.subject || '').trim();
       if (!subject) {
-        if (typeof window !== 'undefined') {
-          window.alert('Aby wysłać działanie do CRM, uzupełnij temat zadania.');
-        }
-        return;
+        throw new Error('Aby wysłać zadanie do CRM, uzupełnij temat zadania.');
       }
 
       const storedRegarding =
@@ -3023,70 +3347,87 @@ Status: ${task.status || '-'}`;
             }
           : null;
 
-      const crmReference = !storedRegarding
-        ? crmProjects.find((item) => item.label === task.project) || null
-        : null;
+      const regardingLabels = new Set(
+        [task.project, task.projectFullLabel, storedRegarding?.name, task.crmRegarding?.label]
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+      );
 
-      const regarding = storedRegarding || (crmReference
-        ? {
-            id: String(crmReference.category === 'opportunity' ? crmReference.opportunityId || crmReference.id : crmReference.id)
-              .replace(/^opportunity:/, '')
-              .trim(),
-            logicalName: crmReference.category === 'opportunity' ? 'opportunity' : 'itarapro_project',
-            name:
-              crmReference.category === 'opportunity'
-                ? crmReference.opportunityName || crmReference.label
-                : crmReference.displayTitle || crmReference.label
-          }
-        : null);
+      const crmReference =
+        crmProjects.find((item) => {
+          const itemLabels = [
+            item.label,
+            item.displayTitle,
+            item.titleInternal,
+            item.opportunityName
+          ]
+            .map((value) => String(value || '').trim())
+            .filter(Boolean);
+          return itemLabels.some((label) => regardingLabels.has(label));
+        }) || null;
 
-      setCrmSendingTaskId(task.id);
-      try {
-        const created = await createCrmTaskActivity({
-          task,
-          dateKey: dKey,
-          employeeName: selectedEmployee?.name || selectedEmployee?.fullName || '',
-          regarding,
-          crmAuth
-        });
+      const regarding =
+        (crmReference
+          ? {
+              id: String(crmReference.category === 'opportunity' ? crmReference.opportunityId || crmReference.id : crmReference.id)
+                .replace(/^opportunity:/, '')
+                .trim(),
+              logicalName: crmReference.category === 'opportunity' ? 'opportunity' : 'itarapro_project',
+              name:
+                crmReference.category === 'opportunity'
+                  ? crmReference.opportunityName || crmReference.label
+                  : crmReference.displayTitle || crmReference.label
+            }
+          : null) || storedRegarding;
+      const existingActivityId = String(task.crmActivityId || '').trim();
+      const isAlreadyClosedCrmActivity =
+        !!existingActivityId &&
+        task.status === 'Zakończone' &&
+        !!task.crmSyncedAt &&
+        !task.crmClosePending;
 
-        let closeWarning = '';
-        if (task.status === 'Zakończone' && created.activityId) {
-          try {
-            await closeCrmTaskActivity(created.activityId, crmAuth);
-          } catch (closeErr) {
-            closeWarning =
-              closeErr instanceof Error
-                ? closeErr.message
-                : 'Nie udało się automatycznie zamknąć działania w CRM.';
-          }
-        }
-
-        setTask(task.id, {
-          crmActivityId: created.activityId,
-          crmSyncedAt: new Date().toISOString(),
-          crmClosePending: task.status === 'Zakończone' && !!closeWarning
-        });
-        closeTaskActions();
-
-        if (typeof window !== 'undefined') {
-          window.alert(
-            `Działanie CRM utworzone poprawnie.${created.activityId ? `\nID: ${created.activityId}` : ''}${
-              closeWarning ? `\n\nUwaga: rekord zapisano w CRM, ale nie udało się ustawić stanu "Zakończone".` : ''
-            }`
-          );
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
-        if (typeof window !== 'undefined') {
-          window.alert(message);
-        }
-      } finally {
-        setCrmSendingTaskId(null);
+      if (isAlreadyClosedCrmActivity) {
+        return {
+          activityId: existingActivityId,
+          closeWarning: ''
+        };
       }
+
+      const synced = existingActivityId
+        ? await updateCrmTaskActivity({
+            activityId: existingActivityId,
+            task,
+            dateKey: dKey,
+            employeeName: selectedEmployee?.name || selectedEmployee?.fullName || '',
+            regarding,
+            crmScope: CRM_SESSION_SCOPE
+          })
+        : await createCrmTaskActivity({
+            task,
+            dateKey: dKey,
+            employeeName: selectedEmployee?.name || selectedEmployee?.fullName || '',
+            regarding,
+            crmScope: CRM_SESSION_SCOPE
+          });
+
+      let closeWarning = '';
+      if (task.status === 'Zakończone' && synced.activityId) {
+        try {
+          await closeCrmTaskActivity(synced.activityId, null, CRM_SESSION_SCOPE);
+        } catch (closeErr) {
+          closeWarning =
+            closeErr instanceof Error
+              ? closeErr.message
+              : 'Nie udało się automatycznie zamknąć działania w CRM.';
+        }
+      }
+
+      return {
+        activityId: synced.activityId,
+        closeWarning
+      };
     },
-    [closeTaskActions, crmAuth, crmProjects, dKey, selectedEmployee, setTask]
+    [crmConnected, crmProjects, dKey, selectedEmployee]
   );
 
   const sendTasksToManager = async () => {
@@ -3109,16 +3450,44 @@ Status: ${task.status || '-'}`;
     setError(null);
     const now = new Date().toISOString();
     const selectedSet = new Set(tasksToSendIds);
-    const nextItems = taskItems.map((item) => {
-      const next = { ...item };
-      if (selectedSet.has(item.id)) {
-        next.workKind = wkOf(next);
-        next.locked = true;
-        next._syncState = 'SENT';
-        next.prevSyncState = 'SENT';
-        next.sent = true;
+    const nextItems = taskItems.map((item) => ({ ...item }));
+    const closeWarnings = [];
+    try {
+      for (const taskId of tasksToSendIds) {
+        const itemIndex = nextItems.findIndex((item) => item.id === taskId);
+        if (itemIndex === -1) continue;
+        const currentTask = {
+          ...nextItems[itemIndex],
+          workKind: wkOf(nextItems[itemIndex])
+        };
+        const synced = await syncTaskToCrm(currentTask);
+        nextItems[itemIndex] = {
+          ...currentTask,
+          crmActivityId: synced.activityId,
+          crmSyncedAt: now,
+          crmClosePending: currentTask.status === 'Zakończone' && !!synced.closeWarning
+        };
+        if (synced.closeWarning) {
+          closeWarnings.push(`• ${currentTask.subject || currentTask.project || currentTask.id}: ${synced.closeWarning}`);
+        }
       }
-      return next;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      if (typeof window !== 'undefined') {
+        window.alert(message);
+      }
+      setSendingTasks(false);
+      return;
+    }
+
+    nextItems.forEach((item) => {
+      if (!selectedSet.has(item.id)) return;
+      item.workKind = wkOf(item);
+      item.locked = true;
+      item._syncState = 'SENT';
+      item.prevSyncState = 'SENT';
+      item.sent = true;
     });
     const reported = computeReported(nextItems);
     const dayState = computeDayStatus(nextItems, planned);
@@ -3199,6 +3568,13 @@ Status: ${task.status || '-'}`;
           items: nextItems
         }));
         setSelectedTaskIds([]);
+        closeTaskActions();
+      }
+      if (typeof window !== 'undefined') {
+        const warningSuffix = closeWarnings.length
+          ? `\n\nUwaga: część działań zapisano w CRM, ale nie udało się ich automatycznie zamknąć:\n${closeWarnings.join('\n')}`
+          : '';
+        window.alert(`Zadania wysłane do CRM i do kierownika.${warningSuffix}`);
       }
       await refreshEmployeePlans();
     } catch (err) {
@@ -3218,7 +3594,11 @@ Status: ${task.status || '-'}`;
       const reported = plan.submission?.reportedMinutes ?? computeReported(items);
       const closed = items.length > 0 && items.every((task) => task.status === 'Zakończone');
       const settled = plan.submission && planMinutes > 0 && reported >= planMinutes && closed;
-      map[plan.date] = settled ? 'SETTLED' : plan.sent ? 'PLANNED' : 'NONE';
+      const hasPlanContent =
+        shiftsArr.length > 0 ||
+        String(plan.note || '').trim().length > 0 ||
+        items.length > 0;
+      map[plan.date] = settled ? 'SETTLED' : hasPlanContent ? 'PLANNED' : 'NONE';
     });
     return map;
   }, [plansByDate]);
@@ -3248,10 +3628,14 @@ Status: ${task.status || '-'}`;
     return combined.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
   }, [monthlyLogsSel, sentDay?.logs]);
 
-  const selectedPlanReported = taskItems.reduce((acc, item) => {
+  const isAbsenceDay =
+    shifts.length > 0 && shifts.every((shift) => ['VACATION', 'SICK', 'ABSENCE'].includes(shift.mode));
+
+  const selectedPlanReportedRaw = taskItems.reduce((acc, item) => {
     if (!item.start || !item.end) return acc;
     return acc + (toMinutes(item.end) - toMinutes(item.start));
   }, 0);
+  const selectedPlanReported = isAbsenceDay ? 0 : selectedPlanReportedRaw;
   const reportedWithinPlan = Math.min(selectedPlanReported, planned);
   const reportedOvertime = Math.max(selectedPlanReported - reportedWithinPlan, 0);
   const reportedPlanLabel =
@@ -3330,6 +3714,14 @@ Status: ${task.status || '-'}`;
                 >
                   <Plug className="w-4 h-4" /> Integracja z CRM
                 </button>
+                <button
+                  type="button"
+                  onClick={handleCrmLogout}
+                  disabled={!crmConnected}
+                  className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-600 hover:bg-rose-50 disabled:text-slate-400 disabled:hover:bg-transparent"
+                >
+                  <LogOut className="w-4 h-4" /> Wyloguj
+                </button>
               </div>
             )}
           </div>
@@ -3341,6 +3733,15 @@ Status: ${task.status || '-'}`;
 
       <div className={cls('grid gap-6', calendarOpen ? 'lg:grid-cols-[260px_1fr_360px]' : 'lg:grid-cols-[260px_1fr]')}>
         <aside className={cls(CARD, 'h-fit sticky top-6')}>
+          {fixedEmployeeProfile && (
+            <div className="mb-3 rounded-2xl border-2 border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">TWOJE KONTO</div>
+              <div className="mt-2 text-base font-semibold text-slate-800">{employeeProfile?.name || '—'}</div>
+              <div className="mt-1 text-sm text-slate-500">
+                {[employeeProfile?.role, employeeProfile?.employmentType].filter(Boolean).join(' • ') || '—'}
+              </div>
+            </div>
+          )}
           <PickerSection
             title="Kierownicy"
             icon={Users}
@@ -3389,6 +3790,11 @@ Status: ${task.status || '-'}`;
               year: 'numeric'
             })}
           </div>
+          {!isViewingOwnProfile && (
+            <div className="mb-3 rounded-xl border-2 border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700">
+              Tryb podglądu. Oglądasz plan innego pracownika, więc edycja i wysyłka są zablokowane.
+            </div>
+          )}
 
           {planCollapsed ? (
             <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-4 space-y-3">
@@ -3451,7 +3857,7 @@ Status: ${task.status || '-'}`;
                           <TimeSelect
                             value={segment.start}
                             onChange={(value) => setSegField(idx, 'start', value)}
-                            disabled={disableTimes}
+                            disabled={!isViewingOwnProfile || disableTimes}
                             size="plan"
                           />
                         </label>
@@ -3460,13 +3866,17 @@ Status: ${task.status || '-'}`;
                           <TimeSelect
                             value={segment.end}
                             onChange={(value) => setSegField(idx, 'end', value)}
-                            disabled={disableTimes}
+                            disabled={!isViewingOwnProfile || disableTimes}
                             size="plan"
                           />
                         </label>
                         <label className="text-sm block">
                           Tryb pracy
-                          <ModeChooser value={segment.mode || 'OFFICE'} onChange={(mode) => setSegField(idx, 'mode', mode)} />
+                          <ModeChooser
+                            value={segment.mode || 'OFFICE'}
+                            onChange={(mode) => setSegField(idx, 'mode', mode)}
+                            disabled={!isViewingOwnProfile}
+                          />
                         </label>
                         <div className="flex items-center justify-end">
                           {shifts.length > 1 && (
@@ -3474,6 +3884,7 @@ Status: ${task.status || '-'}`;
                               onClick={() => delSegment(idx)}
                               className="rounded-lg border-2 border-slate-300 px-2 py-2 hover:bg-slate-50"
                               aria-label="Usuń segment"
+                              disabled={!isViewingOwnProfile}
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -3487,6 +3898,7 @@ Status: ${task.status || '-'}`;
                           onChange={(e) => setSegField(idx, 'note', e.target.value)}
                           className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2 min-w-0"
                           placeholder="np. notatka"
+                          disabled={!isViewingOwnProfile}
                         />
                       </label>
                     </div>
@@ -3510,13 +3922,13 @@ Status: ${task.status || '-'}`;
                 <div className="flex items-center gap-2">
                   <button
                     onClick={addSegment}
-                    disabled={planned >= 480}
+                    disabled={!isViewingOwnProfile || planned >= 480}
                     className="rounded-full border-2 border-slate-300 p-2 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Dodaj zakres"
                   >
                     <Plus className="w-4 h-4" />
                   </button>
-                  <button onClick={sendPlanToManager} className={BTN} disabled={sendingPlan}>
+                  <button onClick={sendPlanToManager} className={BTN} disabled={!isViewingOwnProfile || sendingPlan}>
                     {sendingPlan ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" /> Wysyłanie...
@@ -3702,6 +4114,7 @@ Status: ${task.status || '-'}`;
                       )}
                       aria-pressed={allTasksSelected}
                       aria-label={allTasksSelected ? 'Odznacz wszystkie zadania' : 'Zaznacz wszystkie zadania'}
+                      disabled={!isViewingOwnProfile}
                     >
                       {allTasksSelected ? (
                         <Check className="w-3 h-3" />
@@ -3724,7 +4137,7 @@ Status: ${task.status || '-'}`;
               <tbody>
                 {taskItems.map((item, index) => (
                   <TaskRow
-                    key={item.id}
+                    key={`${selectedEmployee?.id || 'none'}:${dKey}:${item.id}`}
                     selected={selectedTaskIds.includes(item.id)}
                     onToggleSelect={toggleTaskSelection}
                     task={item}
@@ -3736,14 +4149,14 @@ Status: ${task.status || '-'}`;
                     onLock={handleTaskLock}
                     onUnlock={handleTaskUnlock}
                     onExport={handleTaskExport}
-                    onSendToCrm={handleTaskSendToCrm}
                     onDelete={handleTaskDelete}
+                    onEditStart={handleTaskEditStart}
                     computeWorkKind={wkOf}
                     crmProjectsLoading={crmProjectsLoading}
                     crmProjects={crmProjects}
                     previousTask={index > 0 ? taskItems[index - 1] : null}
                     nextTask={index < taskItems.length - 1 ? taskItems[index + 1] : null}
-                    crmSending={crmSendingTaskId === item.id}
+                    readOnly={!isViewingOwnProfile}
                   />
                 ))}
               </tbody>
@@ -3804,26 +4217,26 @@ Status: ${task.status || '-'}`;
                 BTN,
                 'border-rose-300 text-rose-600 hover:bg-rose-50'
               )}
-              disabled={!selectedTaskIds.length}
+              disabled={!isViewingOwnProfile || !selectedTaskIds.length}
             >
               <Trash2 className="w-4 h-4" /> Usuń
             </button>
-            <button onClick={importPlanToTasks} className={BTN} disabled={crmImportingTasks}>
+            <button onClick={importPlanToTasks} className={BTN} disabled={!isViewingOwnProfile || crmImportingTasks}>
               {crmImportingTasks ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarDays className="w-4 h-4" />}
               {crmImportingTasks ? 'Pobieram z CRM' : 'Importuj plan'}
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={addTask} className={BTN}>
+            <button onClick={addTask} className={BTN} disabled={!isViewingOwnProfile}>
               <Plus className="w-4 h-4" /> Dodaj zadanie
             </button>
             <button
               onClick={sendTasksToManager}
               className={cls(
                 BTN,
-                (!canSendTasks || sendingTasks) && 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-100'
+                (!isViewingOwnProfile || !canSendTasks || sendingTasks) && 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-100'
               )}
-              disabled={!canSendTasks || sendingTasks}
+              disabled={!isViewingOwnProfile || !canSendTasks || sendingTasks}
             >
               {sendingTasks ? (
                 <>

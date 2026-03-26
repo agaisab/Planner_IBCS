@@ -4,7 +4,7 @@
   "description": "JSON server backend for Planner panels",
   "type": "module",
   "scripts": {
-    "dev": "json-server --host 127.0.0.1 --watch db.json --port 4170 --delay 100",
+    "dev": "json-server --host 0.0.0.0 --watch db.json --port 4170 --delay 100",
     "build": "echo \"planner-backend: nothing to build\""
   },
   "keywords": [],

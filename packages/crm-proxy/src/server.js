@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import session from 'express-session';
 import { verifyCredentials, ntlmRequest } from './crmClient.js';
 
 dotenv.config();
@@ -13,7 +14,9 @@ const {
   ALLOWED_ORIGINS = '',
   CRM_DOMAIN,
   CRM_USERNAME,
-  CRM_PASSWORD
+  CRM_PASSWORD,
+  SESSION_SECRET = 'planner-ibcs-crm-session',
+  SESSION_COOKIE_NAME = 'planner_ibcs_crm_session'
 } = process.env;
 
 const allowedOrigins = ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean);
@@ -27,10 +30,11 @@ app.use(express.json({ limit: '2mb' }));
 app.use(morgan(process.env.NODE_ENV === 'development' ? 'dev' : 'combined'));
 
 if (allowAllOrigins || allowedOrigins.length === 0) {
-  app.use(cors());
-  app.options('*', cors());
+  app.use(cors({ credentials: true, origin: true }));
+  app.options('*', cors({ credentials: true, origin: true }));
 } else {
   const corsOptions = {
+    credentials: true,
     origin(origin, callback) {
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
@@ -51,12 +55,30 @@ if (allowAllOrigins || allowedOrigins.length === 0) {
   });
 }
 
+app.use(
+  session({
+    name: SESSION_COOKIE_NAME,
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: false,
+      maxAge: 1000 * 60 * 60 * 12
+    }
+  })
+);
+
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', crmUrlConfigured: Boolean(CRM_URL) });
 });
 
 const mapErrorToResponse = (error) => {
   const statusFromError = typeof error?.statusCode === 'number' ? error.statusCode : null;
+  const errorBody = typeof error?.body === 'string' ? error.body : '';
+  const crmMessageMatch = errorBody.match(/"value"\s*:\s*"([^"]+)"/i);
+  const crmMessage = crmMessageMatch?.[1]?.trim();
   if (statusFromError === 401 || statusFromError === 403) {
     return {
       status: statusFromError,
@@ -66,7 +88,7 @@ const mapErrorToResponse = (error) => {
   if (statusFromError && statusFromError >= 400 && statusFromError < 500) {
     return {
       status: statusFromError,
-      message: 'Żądanie do CRM nie powiodło się.'
+      message: crmMessage || 'Żądanie do CRM nie powiodło się.'
     };
   }
   return {
@@ -75,17 +97,56 @@ const mapErrorToResponse = (error) => {
   };
 };
 
-app.post('/crm/login', async (req, res) => {
-  const {
+const getScope = (req) => {
+  const bodyScope = typeof req.body?.scope === 'string' ? req.body.scope.trim() : '';
+  const queryScope = typeof req.query?.scope === 'string' ? req.query.scope.trim() : '';
+  const headerScope = typeof req.headers['x-crm-session-scope'] === 'string' ? req.headers['x-crm-session-scope'].trim() : '';
+  return bodyScope || queryScope || headerScope || 'default';
+};
+
+const getScopedSessionAuth = (req, scope) => {
+  const connections = req.session?.crmConnections;
+  if (!connections || typeof connections !== 'object') return null;
+  const entry = connections[scope];
+  if (!entry || typeof entry !== 'object') return null;
+  return entry;
+};
+
+const setScopedSessionAuth = (req, scope, auth) => {
+  if (!req.session.crmConnections || typeof req.session.crmConnections !== 'object') {
+    req.session.crmConnections = {};
+  }
+  req.session.crmConnections[scope] = auth;
+};
+
+const clearScopedSessionAuth = (req, scope) => {
+  if (!req.session?.crmConnections || typeof req.session.crmConnections !== 'object') return;
+  delete req.session.crmConnections[scope];
+};
+
+const resolveCrmAuth = (req, options = {}) => {
+  const { requireSession = false } = options;
+  const scope = getScope(req);
+  const sessionAuth = getScopedSessionAuth(req, scope);
+  const login = typeof req.body?.login === 'string' && req.body.login.trim() ? req.body.login.trim() : sessionAuth?.login || (requireSession ? '' : (CRM_USERNAME ?? '').trim());
+  const password =
+    typeof req.body?.password === 'string' && req.body.password.length
+      ? req.body.password
+      : sessionAuth?.password || (requireSession ? '' : CRM_PASSWORD);
+  const domain = typeof req.body?.domain === 'string' && req.body.domain.trim() ? req.body.domain.trim() : sessionAuth?.domain || (requireSession ? '' : (CRM_DOMAIN ?? '').trim());
+  const workstation = req.body?.workstation;
+
+  return {
+    scope,
     login,
     password,
     domain,
     workstation
-  } = req.body || {};
+  };
+};
 
-  const effectiveLogin = (login ?? CRM_USERNAME ?? '').trim();
-  const effectiveDomain = (domain ?? CRM_DOMAIN ?? '').trim();
-  const effectivePassword = typeof password === 'string' && password.length ? password : CRM_PASSWORD;
+app.post('/crm/login', async (req, res) => {
+  const { scope, login: effectiveLogin, password: effectivePassword, domain: effectiveDomain, workstation } = resolveCrmAuth(req);
 
   if (!effectiveLogin || !effectivePassword || !effectiveDomain) {
     res.status(400).json({ error: 'Podaj login, hasło i domenę.' });
@@ -104,8 +165,15 @@ app.post('/crm/login', async (req, res) => {
       domain: effectiveDomain,
       workstation
     });
+    setScopedSessionAuth(req, scope, {
+      login: effectiveLogin,
+      password: effectivePassword,
+      domain: effectiveDomain,
+      connectedAt: new Date().toISOString()
+    });
     res.json({
       connected: true,
+      scope,
       user: effectiveLogin,
       domain: effectiveDomain
     });
@@ -119,26 +187,38 @@ app.post('/crm/login', async (req, res) => {
   }
 });
 
+app.get('/crm/session/status', (req, res) => {
+  const scope = getScope(req);
+  const auth = getScopedSessionAuth(req, scope);
+
+  res.json({
+    connected: !!(auth?.login && auth?.password && auth?.domain),
+    scope,
+    user: auth?.login || null,
+    domain: auth?.domain || null,
+    connectedAt: auth?.connectedAt || null
+  });
+});
+
+app.post('/crm/session/logout', (req, res) => {
+  const scope = getScope(req);
+  clearScopedSessionAuth(req, scope);
+  res.json({ connected: false, scope });
+});
+
 app.post('/crm/odata', async (req, res) => {
   if (!CRM_DATA_URL) {
     res.status(500).json({ error: 'Brak konfiguracji adresu CRM (CRM_DATA_URL).' });
     return;
   }
 
+  const { path = '', method = 'GET', headers = {}, body } = req.body || {};
   const {
-    login,
-    password,
-    domain,
-    workstation,
-    path = '',
-    method = 'GET',
-    headers = {},
-    body
-  } = req.body || {};
-
-  const effectiveLogin = (login ?? CRM_USERNAME ?? '').trim();
-  const effectiveDomain = (domain ?? CRM_DOMAIN ?? '').trim();
-  const effectivePassword = typeof password === 'string' && password.length ? password : CRM_PASSWORD;
+    login: effectiveLogin,
+    password: effectivePassword,
+    domain: effectiveDomain,
+    workstation
+  } = resolveCrmAuth(req);
 
   if (!effectiveLogin || !effectivePassword || !effectiveDomain) {
     res.status(400).json({ error: 'Podaj login, hasło i domenę.' });
@@ -208,18 +288,13 @@ app.post('/crm/execute', async (req, res) => {
     return;
   }
 
+  const { body, soapAction } = req.body || {};
   const {
-    login,
-    password,
-    domain,
-    workstation,
-    body,
-    soapAction
-  } = req.body || {};
-
-  const effectiveLogin = (login ?? CRM_USERNAME ?? '').trim();
-  const effectiveDomain = (domain ?? CRM_DOMAIN ?? '').trim();
-  const effectivePassword = typeof password === 'string' && password.length ? password : CRM_PASSWORD;
+    login: effectiveLogin,
+    password: effectivePassword,
+    domain: effectiveDomain,
+    workstation
+  } = resolveCrmAuth(req);
 
   if (!effectiveLogin || !effectivePassword || !effectiveDomain) {
     res.status(400).json({ error: 'Podaj login, hasło i domenę.' });

@@ -18,7 +18,9 @@ import {
   Download,
   Menu,
   Loader2,
-  RotateCcw
+  RotateCcw,
+  LogOut,
+  CarFront
 } from 'lucide-react';
 import {
   cls,
@@ -49,6 +51,7 @@ import {
   patchPlan,
   fetchMonthlyLogs,
   createMonthlyLog,
+  deleteMonthlyLog,
   deleteMonthlyLogsForEmployee,
   deletePlan,
   deepEqual,
@@ -64,8 +67,33 @@ const BTN =
   'inline-flex items-center gap-2 rounded-xl border-2 border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed';
 const CARD = 'rounded-2xl border-2 border-slate-300 bg-white shadow-sm p-4';
 const CHIP = 'inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-sm';
-const CRM_PROXY_URL = import.meta.env?.VITE_CRM_PROXY_URL || 'http://localhost:5050';
+const CRM_PROXY_URL =
+  import.meta.env?.VITE_CRM_PROXY_URL ||
+  (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:5050` : 'http://localhost:5050');
 const CRM_FIXED_DOMAIN = import.meta.env?.VITE_CRM_DOMAIN || 'bcspol';
+const CRM_SESSION_SCOPE = 'manager-panel';
+const MANAGER_PLAN_CACHE_PREFIX = 'planner_manager_plans_cache:';
+
+const readPlanCache = (prefix, key) => {
+  if (typeof window === 'undefined' || !key) return null;
+  try {
+    const raw = window.sessionStorage.getItem(`${prefix}${key}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const writePlanCache = (prefix, key, value) => {
+  if (typeof window === 'undefined' || !key) return;
+  try {
+    window.sessionStorage.setItem(`${prefix}${key}`, JSON.stringify(value || {}));
+  } catch {
+    /* ignore cache write errors */
+  }
+};
 
 const planIdFor = (employeeId, dateKey) => `${employeeId}_${dateKey}`;
 
@@ -473,7 +501,7 @@ function EmployeeCalendar({ monthStart, selectedDate, setSelectedDate, statusByD
   );
 }
 
-export default function ManagerPanel() {
+export default function ManagerPanel({ managerProfile = null, onManagerProfileChange = null, onRequireLogin = null }) {
   const {
     managers,
     employees,
@@ -519,10 +547,12 @@ export default function ManagerPanel() {
 
 const [autoOpen, setAutoOpen] = useState(false);
 const [modalMonth, setModalMonth] = useState(() => `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 2).padStart(2, '0')}`);
+const [autoPlanHours, setAutoPlanHours] = useState({ start: '08:00', end: '16:00' });
 const [autoPlanning, setAutoPlanning] = useState(false);
 const wasAutoPlanning = useRef(false);
 const [autoPlanSnapshot, setAutoPlanSnapshot] = useState(null);
 const [undoingAutoPlan, setUndoingAutoPlan] = useState(false);
+const [deletingPlannedMonthKey, setDeletingPlannedMonthKey] = useState('');
 const [savingPlan, setSavingPlan] = useState(false);
 const [deletingEmployee, setDeletingEmployee] = useState(false);
 const [deletingManager, setDeletingManager] = useState(false);
@@ -541,6 +571,7 @@ const [deletingManager, setDeletingManager] = useState(false);
   const [crmError, setCrmError] = useState('');
   const [crmConnected, setCrmConnected] = useState(false);
   const [crmUser, setCrmUser] = useState(null);
+  const fixedManagerProfile = !!managerProfile?.id;
 
 const selectedEmployeeId = selectedEmployee?.id;
 
@@ -560,10 +591,12 @@ const selectedEmployeeId = selectedEmployee?.id;
       try {
         const response = await fetch(`${CRM_PROXY_URL}/crm/login`, {
           method: 'POST',
+          credentials: 'include',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
+            scope: CRM_SESSION_SCOPE,
             login: trimmedLogin,
             password: crmCredentials.password,
             domain: CRM_FIXED_DOMAIN
@@ -581,6 +614,7 @@ const selectedEmployeeId = selectedEmployee?.id;
           login: payload?.user || trimmedLogin,
           domain: CRM_FIXED_DOMAIN
         });
+        setCrmCredentials((prev) => ({ ...prev, password: '' }));
         setCrmError('');
         setCrmModalOpen(false);
       } catch (err) {
@@ -600,15 +634,87 @@ const selectedEmployeeId = selectedEmployee?.id;
     [crmCredentials, crmLoading]
   );
 
+  const handleCrmLogout = useCallback(async () => {
+    try {
+      await fetch(`${CRM_PROXY_URL}/crm/session/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          scope: CRM_SESSION_SCOPE
+        })
+      });
+    } catch {
+      /* ignore logout transport errors and clear local state */
+    } finally {
+      setActionsMenuOpen(false);
+      setCrmModalOpen(false);
+      setCrmConnected(false);
+      setCrmUser(null);
+      setCrmLoading(false);
+      setCrmError('');
+      setCrmCredentials((prev) => ({ ...prev, password: '' }));
+      if (typeof onRequireLogin === 'function') {
+        onRequireLogin();
+      }
+    }
+  }, [onRequireLogin]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await fetch(`${CRM_PROXY_URL}/crm/session/status?scope=${encodeURIComponent(CRM_SESSION_SCOPE)}`, {
+          credentials: 'include'
+        });
+        const payload = await response.json().catch(() => null);
+        if (!active || !response.ok) return;
+        if (payload?.connected) {
+          setCrmConnected(true);
+          setCrmUser({
+            login: payload?.user || '',
+            domain: payload?.domain || CRM_FIXED_DOMAIN
+          });
+        } else {
+          setCrmConnected(false);
+          setCrmUser(null);
+        }
+      } catch {
+        if (!active) return;
+        setCrmConnected(false);
+        setCrmUser(null);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   useEffect(() => {
     if (directoryError) setError(directoryError);
   }, [directoryError]);
 
   useEffect(() => {
+    if (fixedManagerProfile) {
+      const resolvedManager = managers.find((manager) => manager.id === managerProfile?.id) || managerProfile || null;
+      if (!selectedManager?.id && resolvedManager?.id) {
+        setSelectedManager(resolvedManager);
+      }
+      if (
+        typeof onManagerProfileChange === 'function' &&
+        resolvedManager?.id &&
+        JSON.stringify(resolvedManager) !== JSON.stringify(managerProfile)
+      ) {
+        onManagerProfileChange(resolvedManager);
+      }
+      return;
+    }
     if (!selectedManager && managers.length) {
       setSelectedManager(managers[0]);
     }
-  }, [managers, selectedManager]);
+  }, [fixedManagerProfile, managerProfile, managers, onManagerProfileChange, selectedManager?.id]);
 
   useEffect(() => {
     if (!selectedManager) {
@@ -683,6 +789,51 @@ const undoAutoPlan = useCallback(async () => {
   return success;
 }, [autoPlanSnapshot, selectedEmployee?.id, undoingAutoPlan, refreshEmployeePlans]);
 
+const deletePlannedMonth = useCallback(
+  async (monthKey) => {
+    if (!selectedEmployee?.id || !monthKey || deletingPlannedMonthKey) return false;
+    setDeletingPlannedMonthKey(monthKey);
+    setError(null);
+    try {
+      const monthPlans = Object.values(plansByDate || {}).filter(
+        (plan) => plan?.date && plan.date.startsWith(`${monthKey}-`)
+      );
+      const monthLogs = (monthlyLogs || []).filter(
+        (log) => log?.employeeId === selectedEmployee.id && log?.ym === monthKey && log?.type === 'AUTO_MONTH'
+      );
+
+      await Promise.all([
+        ...monthPlans.map((plan) => deletePlan(plan.id)),
+        ...monthLogs.map((log) => deleteMonthlyLog(log.id))
+      ]);
+
+      setPlansByDate((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((dateKey) => {
+          if (dateKey.startsWith(`${monthKey}-`)) delete next[dateKey];
+        });
+        return next;
+      });
+      setMonthlyLogs((prev) =>
+        prev.filter((log) => !(log?.employeeId === selectedEmployee.id && log?.ym === monthKey && log?.type === 'AUTO_MONTH'))
+      );
+
+      if (autoPlanSnapshot?.employeeId === selectedEmployee.id && autoPlanSnapshot?.monthKey === monthKey) {
+        setAutoPlanSnapshot(null);
+      }
+
+      await refreshEmployeePlans();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return false;
+    } finally {
+      setDeletingPlannedMonthKey('');
+    }
+  },
+  [autoPlanSnapshot, deletingPlannedMonthKey, monthlyLogs, plansByDate, refreshEmployeePlans, selectedEmployee?.id]
+);
+
   useEffect(() => {
   if (!selectedEmployee?.id) {
     setPlansByDate({});
@@ -690,7 +841,12 @@ const undoAutoPlan = useCallback(async () => {
     return;
   }
   if (autoPlanning) return;
+  const cachedPlans = readPlanCache(MANAGER_PLAN_CACHE_PREFIX, selectedEmployee.id);
+  if (cachedPlans && Object.keys(plansByDate || {}).length === 0) {
+    setPlansByDate(cachedPlans);
+  }
   setPlansByDate((prev) => (deepEqual(prev, hookPlansByDate) ? prev : hookPlansByDate));
+  writePlanCache(MANAGER_PLAN_CACHE_PREFIX, selectedEmployee.id, hookPlansByDate);
   setMonthlyLogs((prev) => (deepEqual(prev, hookLogs) ? prev : hookLogs));
   if (hookError) setError(hookError);
   setReportSelectedIds((prev) =>
@@ -912,7 +1068,11 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
         visibleItems.length > 0 &&
         visibleItems.every((task) => String(task.status || '').toLowerCase().includes('zako'));
       const settled = submissionActive && planMinutes > 0 && reported >= planMinutes && closed;
-      map[plan.date] = settled ? 'SETTLED' : plan.sent ? 'PLANNED' : 'NONE';
+      const hasPlanContent =
+        shiftsArr.length > 0 ||
+        String(plan.note || '').trim().length > 0 ||
+        (submissionEntry?.items || []).length > 0;
+      map[plan.date] = settled ? 'SETTLED' : hasPlanContent ? 'PLANNED' : 'NONE';
     });
     return map;
   }, [plansByDate]);
@@ -999,6 +1159,25 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
       undoMonthLabel = plMonth(new Date(yy, mm - 1, 1));
     }
   }
+  const plannedMonths = useMemo(() => {
+    const seen = new Set();
+    return (monthlyLogs || [])
+      .filter((log) => log?.employeeId === selectedEmployee?.id && log?.type === 'AUTO_MONTH' && log?.ym)
+      .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))
+      .filter((log) => {
+        if (seen.has(log.ym)) return false;
+        seen.add(log.ym);
+        return true;
+      })
+      .map((log) => {
+        const [yyStr, mmStr] = String(log.ym).split('-');
+        const yy = Number(yyStr);
+        const mm = Number(mmStr);
+        const label =
+          Number.isFinite(yy) && Number.isFinite(mm) ? plMonth(new Date(yy, mm - 1, 1)) : String(log.ym);
+        return { ym: log.ym, label, at: log.at };
+      });
+  }, [monthlyLogs, selectedEmployee?.id]);
   const hasLogs = logsList.length > 0;
 
 
@@ -1060,6 +1239,17 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
   const planForYearMonth = async (year, monthIndex) => {
     setError(null);
     if (!selectedEmployee) return;
+    const baseStart = autoPlanHours.start || '08:00';
+    const baseEnd = autoPlanHours.end || '16:00';
+    const baseStartMinutes = toMinutes(baseStart);
+    const baseEndMinutes = toMinutes(baseEnd);
+    if (!Number.isFinite(baseStartMinutes) || !Number.isFinite(baseEndMinutes) || baseEndMinutes <= baseStartMinutes) {
+      setError('Podaj poprawne godziny planowania.');
+      return false;
+    }
+    const halfDayEnd = minutesToHHmm(
+      baseStartMinutes + Math.max(15, Math.floor((baseEndMinutes - baseStartMinutes) / 2 / 15) * 15)
+    );
     const dim = new Date(year, monthIndex + 1, 0).getDate();
     const nowIso = new Date().toISOString();
     const entries = [];
@@ -1077,16 +1267,16 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
       let shiftsArr = [];
       let logText = '';
       if (!isHalf) {
-        shiftsArr = [{ mode: 'OFFICE', start: '08:00', end: '16:00' }];
-        logText = `Auto (${monthLabel}): 08:00–16:00 Biuro`;
+        shiftsArr = [{ mode: 'OFFICE', start: baseStart, end: baseEnd }];
+        logText = `Auto (${monthLabel}): ${baseStart}–${baseEnd} Biuro`;
       } else if (weekday === 2 || weekday === 4) {
-        shiftsArr = [{ mode: 'OFFICE', start: '08:00', end: '16:00' }];
-        logText = `Auto (${monthLabel}): 08:00–16:00 Biuro`;
+        shiftsArr = [{ mode: 'OFFICE', start: baseStart, end: baseEnd }];
+        logText = `Auto (${monthLabel}): ${baseStart}–${baseEnd} Biuro`;
       } else if (weekday === 5) {
-        shiftsArr = [{ mode: 'OFFICE', start: '08:00', end: '12:00' }];
-        logText = `Auto (${monthLabel}): 08:00–12:00 Biuro`;
+        shiftsArr = [{ mode: 'OFFICE', start: baseStart, end: halfDayEnd }];
+        logText = `Auto (${monthLabel}): ${baseStart}–${halfDayEnd} Biuro`;
       } else {
-        shiftsArr = [{ mode: 'ABSENCE', start: '08:00', end: '16:00' }];
+        shiftsArr = [{ mode: 'ABSENCE', start: baseStart, end: baseEnd }];
         logText = `Auto (${monthLabel}): Nieobecność`;
       }
       const existingRaw = plansByDate[key];
@@ -1458,6 +1648,14 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
                 >
                   <Plug className="w-4 h-4" /> Integracja z CRM
                 </button>
+                <button
+                  type="button"
+                  onClick={handleCrmLogout}
+                  disabled={!crmConnected}
+                  className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-600 hover:bg-rose-50 disabled:text-slate-400 disabled:hover:bg-transparent"
+                >
+                  <LogOut className="w-4 h-4" /> Wyloguj
+                </button>
               </div>
             )}
           </div>
@@ -1469,6 +1667,15 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
 
       <div className={cls('grid gap-6', calendarOpen ? 'lg:grid-cols-[260px_1fr_360px]' : 'lg:grid-cols-[260px_1fr]')}>
         <aside className={cls(CARD, 'h-fit sticky top-6')}>
+          {fixedManagerProfile && (
+            <div className="mb-3 rounded-2xl border-2 border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">TWOJE KONTO</div>
+              <div className="mt-2 text-base font-semibold text-slate-800">{managerProfile?.name || '—'}</div>
+              <div className="mt-1 text-sm text-slate-500">
+                CRM: <span className="font-medium">{crmUser?.login || managerProfile?.crmLogin || '—'}</span>
+              </div>
+            </div>
+          )}
           <PickerSection
             title="Kierownicy"
             icon={Users}
@@ -1823,7 +2030,7 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
                     : 'bg-amber-50 border-amber-300 text-amber-700'
                 )}
               >
-                {dayOverallSettled ? 'Rozliczone' : 'W trakcie'}
+                {dayOverallSettled ? 'Rozliczone w CRM' : 'W trakcie'}
               </span>
               <span className="text-slate-400">|</span>
               <span className="text-base font-semibold text-slate-700">
@@ -1877,7 +2084,8 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
                               colors.text
                             )}
                           >
-                            <span className={cls('inline-block h-2 w-2 rounded-full', colors.dot)} /> {item.type}
+                            <span className={cls('inline-block h-2 w-2 rounded-full', colors.dot)} />
+                            {item.type}
                           </span>
                         </td>
                         <td className="p-2">{item.subject || '—'}</td>
@@ -1893,9 +2101,15 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
                         <td className="p-2">{formatTimeLabel(item.start)}</td>
                         <td className="p-2">{formatTimeLabel(item.end)}</td>
                         <td className="p-2 w-24">
-                          <span className={cls('inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs whitespace-nowrap', workStyle)}>
-                            {workKind}
-                          </span>
+                          {item.type === 'Przejazd' ? (
+                            <span className="inline-flex w-24 justify-center items-center gap-2 rounded-full border px-2.5 py-1 text-xs whitespace-nowrap bg-violet-50 border-violet-300 text-violet-800" title="Przejazd">
+                              <CarFront className="h-3.5 w-3.5" />
+                            </span>
+                          ) : (
+                            <span className={cls('inline-flex w-24 justify-center items-center gap-2 rounded-full border px-2.5 py-1 text-xs whitespace-nowrap', workStyle)}>
+                              {workKind}
+                            </span>
+                          )}
                         </td>
                         <td className="p-2">
                           <span className={cls('inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs', statusStyle)}>
@@ -1997,8 +2211,8 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
         }
       >
         <p className="text-sm text-slate-600 mb-3">
-          Wybrany pracownik: <span className="font-medium">{selectedEmployee?.name ?? '—'}</span>. Wybierz miesiąc (Pn–Pt,
-          08:00–16:00, Biuro). Plan zostanie wysłany.
+          Wybrany pracownik: <span className="font-medium">{selectedEmployee?.name ?? '—'}</span>. Wybierz miesiąc i godziny,
+          które mają zostać zaplanowane pracownikowi. Plan zostanie wysłany.
         </p>
         <label className="text-sm block">
           Miesiąc
@@ -2009,6 +2223,71 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
             className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2"
           />
         </label>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <label className="text-sm block">
+            Od
+            <div className="mt-2">
+              <TimeSelect
+                value={autoPlanHours.start}
+                onChange={(value) => setAutoPlanHours((prev) => ({ ...prev, start: value }))}
+                size="plan"
+              />
+            </div>
+          </label>
+          <label className="text-sm block">
+            Do
+            <div className="mt-2">
+              <TimeSelect
+                value={autoPlanHours.end}
+                onChange={(value) => setAutoPlanHours((prev) => ({ ...prev, end: value }))}
+                size="plan"
+              />
+            </div>
+          </label>
+        </div>
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+          <div className="text-sm font-medium text-slate-700">Zaplanowane miesiące</div>
+          <div className="mt-2">
+            {plannedMonths.length === 0 ? (
+              <div className="text-sm text-slate-500">Brak automatycznie zaplanowanych miesięcy.</div>
+            ) : (
+              <div className="space-y-2">
+                {plannedMonths.map((month) => (
+                  <div
+                    key={month.ym}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-700">{month.label}</div>
+                      <div className="text-xs text-slate-500">
+                        Zaplanowano: {month.at ? new Date(month.at).toLocaleString('pl-PL') : '—'}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => deletePlannedMonth(month.ym)}
+                      disabled={autoPlanning || undoingAutoPlan || deletingPlannedMonthKey === month.ym}
+                      className="inline-flex items-center gap-2 rounded-xl border border-rose-300 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                    >
+                      {deletingPlannedMonthKey === month.ym ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" /> Usuwanie...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="w-4 h-4" /> Usuń
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="mt-2 text-xs text-slate-500">
+            Usunięcie miesiąca kasuje automatycznie zaplanowane dni oraz wpis planowania dla tego miesiąca.
+          </div>
+        </div>
         {canUndoAutoPlan && (
           <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             Ostatnie automatyczne planowanie dla miesiąca {undoMonthLabel || autoPlanSnapshot.monthKey} można cofnąć przyciskiem \"Cofnij planowanie\".
@@ -2281,16 +2560,20 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
                   await updateEmployee(empDraft.id, {
                     name: empDraft.name,
                     role: empDraft.role,
-                    employmentType: empDraft.employmentType
+                    employmentType: empDraft.employmentType,
+                    managerId: empDraft.managerId
                   });
                   await refreshDirectory();
-                  if (selectedEmployee?.id === empDraft.id) {
+                  if (selectedEmployee?.id === empDraft.id && selectedManager?.id === empDraft.managerId) {
                     setSelectedEmployee({
                       ...selectedEmployee,
                       name: empDraft.name,
                       role: empDraft.role,
-                      employmentType: empDraft.employmentType
+                      employmentType: empDraft.employmentType,
+                      managerId: empDraft.managerId
                     });
+                  } else if (selectedEmployee?.id === empDraft.id) {
+                    setSelectedEmployee(null);
                   }
                 }
                 setEmpModalOpen(false);
@@ -2320,6 +2603,21 @@ const [draftDay, setDraftDay] = useState(createDraft(sentDay));
               className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2"
               placeholder="np. Technik"
             />
+          </label>
+          <label className="text-sm block">
+            Kierownik
+            <select
+              value={empDraft.managerId || ''}
+              onChange={(e) => setEmpDraft({ ...empDraft, managerId: e.target.value })}
+              className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2"
+            >
+              <option value="">Wybierz kierownika</option>
+              {managers.map((manager) => (
+                <option key={manager.id} value={manager.id}>
+                  {manager.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="text-sm block">
             Rodzaj etatu
